@@ -4,4 +4,11 @@
     "google-spreadsheet": "^5.3.0",
     "recharts": "^3.9.2"
   }
+
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  }
 }
