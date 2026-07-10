@@ -93,7 +93,7 @@ export function DashboardShell({ leads }: { leads: ProcessedLead[] }) {
     <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden px-4 py-4 sm:px-6">
       {/* Filtros */}
       <section className="flex shrink-0 flex-wrap items-center gap-2">
-        <Select value={filters.campaign} onValueChange={(value) => setFilters((f) => ({ ...f, campaign: value }))}>
+        <Select value={filters.campaign} onValueChange={(value) => setFilters((f) => ({ ...f, campaign: value || "" }))}>
           <SelectTrigger className="h-9 min-w-[130px] flex-1 border-zinc-800 bg-zinc-900 text-sm text-zinc-200 sm:w-[190px] sm:flex-none">
             <SelectValue placeholder="Campaña" />
           </SelectTrigger>
@@ -107,7 +107,7 @@ export function DashboardShell({ leads }: { leads: ProcessedLead[] }) {
           </SelectContent>
         </Select>
 
-        <Select value={filters.month} onValueChange={(value) => setFilters((f) => ({ ...f, month: value }))}>
+        <Select value={filters.month} onValueChange={(value) => setFilters((f) => ({ ...f, month: value || "" }))}>
           <SelectTrigger className="h-9 min-w-[110px] flex-1 border-zinc-800 bg-zinc-900 text-sm text-zinc-200 sm:w-[170px] sm:flex-none">
             <SelectValue placeholder="Mes" />
           </SelectTrigger>
