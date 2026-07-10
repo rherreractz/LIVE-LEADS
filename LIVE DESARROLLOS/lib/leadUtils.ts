@@ -100,6 +100,12 @@ export function formatDateKey(date: Date): string {
   return date.toISOString().slice(0, 10); // YYYY-MM-DD
 }
 
+/** Formatea la fecha para mostrar en la tabla, ej. "07 jul 2026". */
+export function formatLeadDate(date: Date | null): string {
+  if (!date) return 'Sin fecha';
+  return date.toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
 /**
  * Procesa el arreglo crudo proveniente de Google Sheets:
  *  - Limpia campos de texto libre (Presupuesto, Motivo, TiempoParaInvertir).
@@ -189,7 +195,7 @@ export function groupByMotivo(leads: ProcessedLead[]) {
 }
 
 // ---------------------------------------------------------------------------
-// Filtros interactivos (Campaña / Mes / Status) para el dashboard
+// Filtros interactivos para el dashboard
 // ---------------------------------------------------------------------------
 
 export interface LeadFilters {
@@ -198,22 +204,59 @@ export interface LeadFilters {
   /** 'all' o 'YYYY-MM' */
   month: string;
   status: 'all' | LeadStatus;
+  /** 'all' o el valor exacto de la columna Equipo */
+  equipo: string;
+  /** 'all' o el valor exacto de la columna Fuente (Instagram, Meta/Facebook, WhatsApp, etc.) */
+  fuente: string;
+  /** 'all' o el valor exacto de la columna Proveedor */
+  proveedor: string;
+  /** 'all' o el valor exacto de la columna Etapa */
+  etapa: string;
 }
 
 export const DEFAULT_LEAD_FILTERS: LeadFilters = {
   campaign: 'all',
   month: 'all',
   status: 'all',
+  equipo: 'all',
+  fuente: 'all',
+  proveedor: 'all',
+  etapa: 'all',
 };
 
-/** Lista de campañas únicas (no vacías), ordenadas alfabéticamente. */
-export function getUniqueCampaigns(leads: ProcessedLead[]): string[] {
+/** Helper genérico: valores únicos no vacíos de un campo de texto del lead, ordenados alfabéticamente. */
+function getUniqueValues(leads: ProcessedLead[], field: keyof ProcessedLead): string[] {
   const set = new Set<string>();
   leads.forEach((lead) => {
-    const value = lead.Campana?.trim();
+    const value = (lead[field] as string | undefined)?.trim();
     if (value) set.add(value);
   });
   return Array.from(set).sort((a, b) => a.localeCompare(b));
+}
+
+/** Lista de campañas únicas (no vacías), ordenadas alfabéticamente. */
+export function getUniqueCampaigns(leads: ProcessedLead[]): string[] {
+  return getUniqueValues(leads, 'Campana');
+}
+
+/** Lista de equipos únicos (no vacíos), ordenados alfabéticamente. */
+export function getUniqueEquipos(leads: ProcessedLead[]): string[] {
+  return getUniqueValues(leads, 'Equipo');
+}
+
+/** Lista de fuentes únicas (Instagram, Meta/Facebook, WhatsApp, etc.). */
+export function getUniqueFuentes(leads: ProcessedLead[]): string[] {
+  return getUniqueValues(leads, 'Fuente');
+}
+
+/** Lista de proveedores únicos. */
+export function getUniqueProveedores(leads: ProcessedLead[]): string[] {
+  return getUniqueValues(leads, 'Proveedor');
+}
+
+/** Lista de etapas únicas (estado del lead dentro del proceso de atención). */
+export function getUniqueEtapas(leads: ProcessedLead[]): string[] {
+  return getUniqueValues(leads, 'Etapa');
 }
 
 /** Meses únicos presentes en los datos, con label en español, más reciente primero. */
@@ -234,11 +277,15 @@ export function getUniqueMonths(leads: ProcessedLead[]): { value: string; label:
     .sort((a, b) => b.value.localeCompare(a.value));
 }
 
-/** Aplica los 3 filtros (campaña, mes, status) sobre el arreglo de leads procesados. */
+/** Aplica todos los filtros activos sobre el arreglo de leads procesados. */
 export function filterLeads(leads: ProcessedLead[], filters: LeadFilters): ProcessedLead[] {
   return leads.filter((lead) => {
     if (filters.status !== 'all' && lead.status !== filters.status) return false;
     if (filters.campaign !== 'all' && lead.Campana?.trim() !== filters.campaign) return false;
+    if (filters.equipo !== 'all' && lead.Equipo?.trim() !== filters.equipo) return false;
+    if (filters.fuente !== 'all' && lead.Fuente?.trim() !== filters.fuente) return false;
+    if (filters.proveedor !== 'all' && lead.Proveedor?.trim() !== filters.proveedor) return false;
+    if (filters.etapa !== 'all' && lead.Etapa?.trim() !== filters.etapa) return false;
 
     if (filters.month !== 'all') {
       if (!lead.parsedDate) return false;
@@ -247,10 +294,4 @@ export function filterLeads(leads: ProcessedLead[], filters: LeadFilters): Proce
 
     return true;
   });
-}
-
-/** Formatea la fecha para mostrar en la tabla, ej. "07 jul 2026". */
-export function formatLeadDate(date: Date | null): string {
-  if (!date) return 'Sin fecha';
-  return date.toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' });
 }

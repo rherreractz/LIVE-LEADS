@@ -7,6 +7,12 @@ export interface RawLead {
   Presupuesto: string;
   Motivo: string;
   TiempoParaInvertir: string;
+  Equipo: string;
+  Fuente: string;
+  Proveedor: string;
+  Formulario: string;
+  Etapa: string;
+  Comentarios: string;
 }
 
 export type LeadStatus = 'Válido' | 'Duplicado';

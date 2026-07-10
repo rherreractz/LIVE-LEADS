@@ -32,8 +32,13 @@ export function LeadsTable({ leads }: { leads: ProcessedLead[] }) {
             <TableHead className="text-zinc-500">Nombre</TableHead>
             <TableHead className="text-zinc-500">Contacto</TableHead>
             <TableHead className="text-zinc-500">Campaña</TableHead>
+            <TableHead className="text-zinc-500">Equipo</TableHead>
+            <TableHead className="text-zinc-500">Fuente</TableHead>
+            <TableHead className="text-zinc-500">Proveedor</TableHead>
+            <TableHead className="text-zinc-500">Etapa</TableHead>
             <TableHead className="text-zinc-500">Presupuesto</TableHead>
             <TableHead className="text-zinc-500">Motivo</TableHead>
+            <TableHead className="text-zinc-500">Comentarios</TableHead>
             <TableHead className="text-right text-zinc-500">Status</TableHead>
           </TableRow>
         </TableHeader>
@@ -49,8 +54,23 @@ export function LeadsTable({ leads }: { leads: ProcessedLead[] }) {
                 </div>
               </TableCell>
               <TableCell className="text-zinc-500">{lead.Campana || '—'}</TableCell>
+              <TableCell className="text-zinc-500">{lead.Equipo || '—'}</TableCell>
+              <TableCell className="text-zinc-500">{lead.Fuente || '—'}</TableCell>
+              <TableCell className="text-zinc-500">{lead.Proveedor || '—'}</TableCell>
+              <TableCell className="text-zinc-500">
+                {lead.Etapa ? (
+                  <Badge variant="outline" className="border-zinc-700 font-normal text-zinc-300">
+                    {lead.Etapa}
+                  </Badge>
+                ) : (
+                  '—'
+                )}
+              </TableCell>
               <TableCell className="text-zinc-500">{lead.presupuestoClean}</TableCell>
               <TableCell className="text-zinc-500">{lead.motivoClean}</TableCell>
+              <TableCell className="max-w-[200px] truncate text-zinc-500" title={lead.Comentarios || undefined}>
+                {lead.Comentarios || '—'}
+              </TableCell>
               <TableCell className="text-right">
                 {lead.status === 'Duplicado' ? (
                   <Badge variant="outline" className="border-amber-500/30 text-amber-400">

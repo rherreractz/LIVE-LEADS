@@ -14,6 +14,11 @@ const SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly'];
  *
  * La cuenta de servicio debe tener acceso de "Lector" (Viewer) al Sheet,
  * compartido explícitamente con su correo.
+ *
+ * IMPORTANTE: las columnas del Sheet deben llamarse EXACTAMENTE
+ * (encabezados de la primera fila): Equipo, Fuente, Proveedor, Formulario,
+ * Etapa, Comentarios. Si el Zap las escribe con otro nombre, ajusta los
+ * row.get('...') de abajo para que coincidan.
  */
 async function fetchLeadsFromSheet(): Promise<RawLead[]> {
   const { GOOGLE_SERVICE_ACCOUNT_EMAIL, GOOGLE_PRIVATE_KEY, GOOGLE_SHEET_ID } = process.env;
@@ -51,6 +56,13 @@ async function fetchLeadsFromSheet(): Promise<RawLead[]> {
       Presupuesto: row.get('Presupuesto') ?? '',
       Motivo: row.get('Motivo') ?? '',
       TiempoParaInvertir: row.get('TiempoParaInvertir') ?? '',
+      // --- Columnas nuevas ---
+      Equipo: row.get('Equipo') ?? '',
+      Fuente: row.get('Fuente') ?? '',
+      Proveedor: row.get('Proveedor') ?? '',
+      Formulario: row.get('Formulario') ?? '',
+      Etapa: row.get('Etapa') ?? '',
+      Comentarios: row.get('Comentarios') ?? '',
     }));
   } catch (error) {
     console.error('[googleSheets] Error al leer Google Sheets:', error);
