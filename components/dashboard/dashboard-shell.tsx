@@ -14,6 +14,10 @@ import {
   groupByMotivo,
   getUniqueCampaigns,
   getUniqueMonths,
+  getUniqueEquipos,
+  getUniqueFuentes,
+  getUniqueProveedores,
+  getUniqueEtapas,
   filterLeads,
   DEFAULT_LEAD_FILTERS,
   type LeadFilters,
@@ -46,6 +50,11 @@ function buildFiltersSummary(filters: LeadFilters, months: { value: string; labe
   else if (filters.status === 'Válido') parts.push('Solo válidos');
   else parts.push('Solo duplicados');
 
+  if (filters.equipo !== 'all') parts.push(`Equipo: ${filters.equipo}`);
+  if (filters.fuente !== 'all') parts.push(`Fuente: ${filters.fuente}`);
+  if (filters.proveedor !== 'all') parts.push(`Proveedor: ${filters.proveedor}`);
+  if (filters.etapa !== 'all') parts.push(`Etapa: ${filters.etapa}`);
+
   return parts.join(' · ');
 }
 
@@ -57,6 +66,10 @@ export function DashboardShell({ leads }: { leads: ProcessedLead[] }) {
   // para que no desaparezcan opciones al ir combinando filtros.
   const campaigns = useMemo(() => getUniqueCampaigns(leads), [leads]);
   const months = useMemo(() => getUniqueMonths(leads), [leads]);
+  const equipos = useMemo(() => getUniqueEquipos(leads), [leads]);
+  const fuentes = useMemo(() => getUniqueFuentes(leads), [leads]);
+  const proveedores = useMemo(() => getUniqueProveedores(leads), [leads]);
+  const etapas = useMemo(() => getUniqueEtapas(leads), [leads]);
 
   const filteredLeads = useMemo(() => filterLeads(leads, filters), [leads, filters]);
 
@@ -75,7 +88,13 @@ export function DashboardShell({ leads }: { leads: ProcessedLead[] }) {
   );
 
   const hasActiveFilters =
-    filters.campaign !== 'all' || filters.month !== 'all' || filters.status !== 'all';
+    filters.campaign !== 'all' ||
+    filters.month !== 'all' ||
+    filters.status !== 'all' ||
+    filters.equipo !== 'all' ||
+    filters.fuente !== 'all' ||
+    filters.proveedor !== 'all' ||
+    filters.etapa !== 'all';
 
   async function handleExportPdf() {
     setIsExporting(true);
@@ -93,9 +112,9 @@ export function DashboardShell({ leads }: { leads: ProcessedLead[] }) {
     <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden px-4 py-4 sm:px-6">
       {/* Filtros */}
       <section className="flex shrink-0 flex-wrap items-center gap-2">
-        <Select value={filters.campaign} onValueChange={(value) => setFilters((f) => ({ ...f, campaign: value }))}>
-          <SelectTrigger className="h-9 min-w-[130px] flex-1 border-zinc-800 bg-zinc-900 text-sm text-zinc-200 sm:w-[190px] sm:flex-none">
-            <SelectValue placeholder="Campaña" />
+        <Select value={filters.campaign} onValueChange={(value) => setFilters((f) => ({ ...f, campaign: value || 'all' }))}>
+          <SelectTrigger className="h-9 min-w-[130px] flex-1 border-zinc-800 bg-zinc-900 text-sm text-zinc-200 sm:w-[180px] sm:flex-none">
+            <SelectValue placeholder="Campaña">{(value: string) => (value === 'all' ? 'Campaña' : value)}</SelectValue>
           </SelectTrigger>
           <SelectContent className="border-zinc-800 bg-zinc-900 text-zinc-200">
             <SelectItem value="all">Todas las campañas</SelectItem>
@@ -107,15 +126,74 @@ export function DashboardShell({ leads }: { leads: ProcessedLead[] }) {
           </SelectContent>
         </Select>
 
-        <Select value={filters.month} onValueChange={(value) => setFilters((f) => ({ ...f, month: value }))}>
-          <SelectTrigger className="h-9 min-w-[110px] flex-1 border-zinc-800 bg-zinc-900 text-sm text-zinc-200 sm:w-[170px] sm:flex-none">
-            <SelectValue placeholder="Mes" />
+        <Select value={filters.month} onValueChange={(value) => setFilters((f) => ({ ...f, month: value || 'all' }))}>
+          <SelectTrigger className="h-9 min-w-[110px] flex-1 border-zinc-800 bg-zinc-900 text-sm text-zinc-200 sm:w-[160px] sm:flex-none">
+            <SelectValue placeholder="Mes">
+              {(value: string) => (value === 'all' ? 'Mes' : months.find((m) => m.value === value)?.label ?? value)}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent className="border-zinc-800 bg-zinc-900 text-zinc-200">
             <SelectItem value="all">Todos los meses</SelectItem>
             {months.map((month) => (
               <SelectItem key={month.value} value={month.value}>
                 {month.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        {/* --- Filtros nuevos: Equipo / Fuente / Proveedor / Etapa --- */}
+        <Select value={filters.equipo} onValueChange={(value) => setFilters((f) => ({ ...f, equipo: value || 'all' }))}>
+          <SelectTrigger className="h-9 min-w-[120px] flex-1 border-zinc-800 bg-zinc-900 text-sm text-zinc-200 sm:w-[150px] sm:flex-none">
+            <SelectValue placeholder="Equipo">{(value: string) => (value === 'all' ? 'Equipo' : value)}</SelectValue>
+          </SelectTrigger>
+          <SelectContent className="border-zinc-800 bg-zinc-900 text-zinc-200">
+            <SelectItem value="all">Todos los equipos</SelectItem>
+            {equipos.map((equipo) => (
+              <SelectItem key={equipo} value={equipo}>
+                {equipo}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select value={filters.fuente} onValueChange={(value) => setFilters((f) => ({ ...f, fuente: value || 'all' }))}>
+          <SelectTrigger className="h-9 min-w-[120px] flex-1 border-zinc-800 bg-zinc-900 text-sm text-zinc-200 sm:w-[150px] sm:flex-none">
+            <SelectValue placeholder="Fuente">{(value: string) => (value === 'all' ? 'Fuente' : value)}</SelectValue>
+          </SelectTrigger>
+          <SelectContent className="border-zinc-800 bg-zinc-900 text-zinc-200">
+            <SelectItem value="all">Todas las fuentes</SelectItem>
+            {fuentes.map((fuente) => (
+              <SelectItem key={fuente} value={fuente}>
+                {fuente}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select value={filters.proveedor} onValueChange={(value) => setFilters((f) => ({ ...f, proveedor: value || 'all' }))}>
+          <SelectTrigger className="h-9 min-w-[120px] flex-1 border-zinc-800 bg-zinc-900 text-sm text-zinc-200 sm:w-[150px] sm:flex-none">
+            <SelectValue placeholder="Proveedor">{(value: string) => (value === 'all' ? 'Proveedor' : value)}</SelectValue>
+          </SelectTrigger>
+          <SelectContent className="border-zinc-800 bg-zinc-900 text-zinc-200">
+            <SelectItem value="all">Todos los proveedores</SelectItem>
+            {proveedores.map((proveedor) => (
+              <SelectItem key={proveedor} value={proveedor}>
+                {proveedor}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select value={filters.etapa} onValueChange={(value) => setFilters((f) => ({ ...f, etapa: value || 'all' }))}>
+          <SelectTrigger className="h-9 min-w-[120px] flex-1 border-zinc-800 bg-zinc-900 text-sm text-zinc-200 sm:w-[150px] sm:flex-none">
+            <SelectValue placeholder="Etapa">{(value: string) => (value === 'all' ? 'Etapa' : value)}</SelectValue>
+          </SelectTrigger>
+          <SelectContent className="border-zinc-800 bg-zinc-900 text-zinc-200">
+            <SelectItem value="all">Todas las etapas</SelectItem>
+            {etapas.map((etapa) => (
+              <SelectItem key={etapa} value={etapa}>
+                {etapa}
               </SelectItem>
             ))}
           </SelectContent>

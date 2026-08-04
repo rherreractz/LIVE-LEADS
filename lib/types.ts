@@ -7,6 +7,12 @@ export interface RawLead {
   Presupuesto: string;
   Motivo: string;
   TiempoParaInvertir: string;
+  Equipo: string;
+  Fuente: string;
+  Proveedor: string;
+  Formulario: string;
+  Etapa: string;
+  Comentarios: string;
 }
 
 export type LeadStatus = 'Válido' | 'Duplicado';
@@ -26,4 +32,12 @@ export interface ProcessedLead extends RawLead {
   tiempoClean: string;
   /** Categoría normalizada para la gráfica de dona */
   motivoCategoria: MotivoCategoria;
+  /** Estado del lead en HubSpot (propiedad hs_lead_status), ej. "Intento de contacto" */
+  estadoLeadCrm?: string;
+  /** Etapa del lead en HubSpot (propiedad personalizada configurable) */
+  etapaLeadCrm?: string;
+  /** Propietario del contacto en HubSpot (ya resuelto a nombre) */
+  propietarioCrm?: string;
+  /** Cualquier propiedad extra de HubSpot pedida vía HUBSPOT_EXTRA_PROPERTIES */
+  crmExtra?: Record<string, string>;
 }

@@ -1,4 +1,5 @@
 import type { RawLead, ProcessedLead, MotivoCategoria, LeadStatus } from './types';
+import type { HubspotStatusMap, HubspotContactInfo } from './hubspot';
 
 const SMALL_WORDS = new Set([
   'a', 'de', 'del', 'la', 'el', 'los', 'las', 'en', 'y', 'o', 'un', 'una', 'al',
@@ -53,13 +54,13 @@ function extractLeadingNumber(text: string): number {
   return match ? parseFloat(match[1]) : Number.POSITIVE_INFINITY;
 }
 
-function normalizePhone(phone?: string | null): string {
+export function normalizePhone(phone?: string | null): string {
   if (!phone) return '';
   // se queda con los últimos 10 dígitos para tolerar +52, lada, espacios, etc.
   return phone.replace(/\D/g, '').slice(-10);
 }
 
-function normalizeEmail(email?: string | null): string {
+export function normalizeEmail(email?: string | null): string {
   if (!email) return '';
   return email.trim().toLowerCase();
 }
@@ -100,6 +101,12 @@ export function formatDateKey(date: Date): string {
   return date.toISOString().slice(0, 10); // YYYY-MM-DD
 }
 
+/** Formatea la fecha para mostrar en la tabla, ej. "07 jul 2026". */
+export function formatLeadDate(date: Date | null): string {
+  if (!date) return 'Sin fecha';
+  return date.toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
 /**
  * Procesa el arreglo crudo proveniente de Google Sheets:
  *  - Limpia campos de texto libre (Presupuesto, Motivo, TiempoParaInvertir).
@@ -135,6 +142,107 @@ export function processLeads(rawLeads: RawLead[]): ProcessedLead[] {
       motivoCategoria: classifyMotivo(lead.Motivo),
     };
   });
+}
+
+/**
+ * Convierte un contacto de HubSpot (que no tiene lead correspondiente en el
+ * Sheet) en un RawLead "sintético". Los campos que solo existen en el Sheet
+ * (Presupuesto, Motivo, Campaña, etc.) quedan vacíos porque HubSpot no los
+ * tiene — se muestran como "No especificado" una vez que pasan por
+ * processLeads().
+ */
+function hubspotContactToRawLead(contact: HubspotContactInfo): RawLead {
+  return {
+    Fecha: contact.fechaCreacion || '',
+    Campana: 'HubSpot',
+    Nombre: contact.nombre || 'Sin nombre',
+    Correo: contact.correo || '',
+    Telefono: contact.telefono || '',
+    Presupuesto: '',
+    Motivo: '',
+    TiempoParaInvertir: '',
+    Equipo: '',
+    Fuente: 'HubSpot',
+    Proveedor: '',
+    Formulario: '',
+    Etapa: '',
+    Comentarios: 'Contacto de HubSpot sin lead correspondiente en el Google Sheet.',
+  };
+}
+
+/**
+ * Convierte TODOS los contactos de HubSpot en RawLead. Útil si algún día
+ * quieres usar HubSpot como única fuente. Los campos que solo existían en
+ * el Sheet (Presupuesto, Motivo, Campaña real, etc.) quedan vacíos.
+ */
+export function getHubspotRawLeads(hubspotMap: HubspotStatusMap): RawLead[] {
+  return hubspotMap.all.map(hubspotContactToRawLead);
+}
+
+/**
+ * Devuelve un RawLead sintético por cada contacto de HubSpot que NO tenga
+ * ya un lead con el mismo teléfono o correo en `existingLeads` (los del
+ * Google Sheet). Se usa para combinar ambas fuentes sin duplicar: el Sheet
+ * sigue siendo la base (con Equipo/Fuente/Proveedor reales), y esto agrega
+ * los contactos que solo existen en HubSpot (ej. los que no pasaron por el
+ * flujo normal de Meta Lead Ads).
+ */
+export function getHubspotOnlyRawLeads(existingLeads: RawLead[], hubspotMap: HubspotStatusMap): RawLead[] {
+  const existingPhones = new Set<string>();
+  const existingEmails = new Set<string>();
+
+  existingLeads.forEach((lead) => {
+    const phoneKey = normalizePhone(lead.Telefono);
+    const emailKey = normalizeEmail(lead.Correo);
+    if (phoneKey) existingPhones.add(phoneKey);
+    if (emailKey) existingEmails.add(emailKey);
+  });
+
+  const nuevos = hubspotMap.all.filter((contact) => {
+    const phoneKey = normalizePhone(contact.telefono);
+    const emailKey = normalizeEmail(contact.correo);
+    return !((phoneKey && existingPhones.has(phoneKey)) || (emailKey && existingEmails.has(emailKey)));
+  });
+
+  console.log(
+    `[hubspot] Leads del Sheet: ${existingLeads.length} | Contactos de HubSpot: ${hubspotMap.all.length} | Solo en HubSpot: ${nuevos.length}`,
+  );
+
+  return nuevos.map(hubspotContactToRawLead);
+}
+
+/**
+ * Cruza los leads procesados (Google Sheets) con el mapa de estados de
+ * HubSpot, buscando primero por teléfono y usando el correo como respaldo.
+ * Los leads sin match en HubSpot quedan con 'Sin dato' en ambos campos.
+ */
+export function mergeHubspotStatus(leads: ProcessedLead[], hubspotMap: HubspotStatusMap): ProcessedLead[] {
+  let matched = 0;
+
+  const result = leads.map((lead) => {
+    const phoneKey = normalizePhone(lead.Telefono);
+    const emailKey = normalizeEmail(lead.Correo);
+
+    const match =
+      (phoneKey ? hubspotMap.byPhone.get(phoneKey) : undefined) ??
+      (emailKey ? hubspotMap.byEmail.get(emailKey) : undefined);
+
+    if (match) matched += 1;
+
+    return {
+      ...lead,
+      estadoLeadCrm: match?.estadoLead || 'Sin dato',
+      etapaLeadCrm: match?.etapaLead || 'Sin dato',
+      propietarioCrm: match?.propietario || 'Sin asignar',
+      crmExtra: match?.extra || {},
+    };
+  });
+
+  console.log(
+    `[hubspot] Cruce Sheet <-> HubSpot: ${matched} de ${leads.length} leads del Sheet encontraron su contacto en HubSpot (de ${hubspotMap.byPhone.size} tel. / ${hubspotMap.byEmail.size} correos indexados).`,
+  );
+
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -189,7 +297,7 @@ export function groupByMotivo(leads: ProcessedLead[]) {
 }
 
 // ---------------------------------------------------------------------------
-// Filtros interactivos (Campaña / Mes / Status) para el dashboard
+// Filtros interactivos para el dashboard
 // ---------------------------------------------------------------------------
 
 export interface LeadFilters {
@@ -198,22 +306,59 @@ export interface LeadFilters {
   /** 'all' o 'YYYY-MM' */
   month: string;
   status: 'all' | LeadStatus;
+  /** 'all' o el valor exacto de la columna Equipo */
+  equipo: string;
+  /** 'all' o el valor exacto de la columna Fuente (Instagram, Meta/Facebook, WhatsApp, etc.) */
+  fuente: string;
+  /** 'all' o el valor exacto de la columna Proveedor */
+  proveedor: string;
+  /** 'all' o el valor exacto de la columna Etapa */
+  etapa: string;
 }
 
 export const DEFAULT_LEAD_FILTERS: LeadFilters = {
   campaign: 'all',
   month: 'all',
   status: 'all',
+  equipo: 'all',
+  fuente: 'all',
+  proveedor: 'all',
+  etapa: 'all',
 };
 
-/** Lista de campañas únicas (no vacías), ordenadas alfabéticamente. */
-export function getUniqueCampaigns(leads: ProcessedLead[]): string[] {
+/** Helper genérico: valores únicos no vacíos de un campo de texto del lead, ordenados alfabéticamente. */
+function getUniqueValues(leads: ProcessedLead[], field: keyof ProcessedLead): string[] {
   const set = new Set<string>();
   leads.forEach((lead) => {
-    const value = lead.Campana?.trim();
+    const value = (lead[field] as string | undefined)?.trim();
     if (value) set.add(value);
   });
   return Array.from(set).sort((a, b) => a.localeCompare(b));
+}
+
+/** Lista de campañas únicas (no vacías), ordenadas alfabéticamente. */
+export function getUniqueCampaigns(leads: ProcessedLead[]): string[] {
+  return getUniqueValues(leads, 'Campana');
+}
+
+/** Lista de equipos únicos (no vacíos), ordenados alfabéticamente. */
+export function getUniqueEquipos(leads: ProcessedLead[]): string[] {
+  return getUniqueValues(leads, 'Equipo');
+}
+
+/** Lista de fuentes únicas (Instagram, Meta/Facebook, WhatsApp, etc.). */
+export function getUniqueFuentes(leads: ProcessedLead[]): string[] {
+  return getUniqueValues(leads, 'Fuente');
+}
+
+/** Lista de proveedores únicos. */
+export function getUniqueProveedores(leads: ProcessedLead[]): string[] {
+  return getUniqueValues(leads, 'Proveedor');
+}
+
+/** Lista de etapas únicas (estado del lead dentro del proceso de atención). */
+export function getUniqueEtapas(leads: ProcessedLead[]): string[] {
+  return getUniqueValues(leads, 'Etapa');
 }
 
 /** Meses únicos presentes en los datos, con label en español, más reciente primero. */
@@ -234,11 +379,15 @@ export function getUniqueMonths(leads: ProcessedLead[]): { value: string; label:
     .sort((a, b) => b.value.localeCompare(a.value));
 }
 
-/** Aplica los 3 filtros (campaña, mes, status) sobre el arreglo de leads procesados. */
+/** Aplica todos los filtros activos sobre el arreglo de leads procesados. */
 export function filterLeads(leads: ProcessedLead[], filters: LeadFilters): ProcessedLead[] {
   return leads.filter((lead) => {
     if (filters.status !== 'all' && lead.status !== filters.status) return false;
     if (filters.campaign !== 'all' && lead.Campana?.trim() !== filters.campaign) return false;
+    if (filters.equipo !== 'all' && lead.Equipo?.trim() !== filters.equipo) return false;
+    if (filters.fuente !== 'all' && lead.Fuente?.trim() !== filters.fuente) return false;
+    if (filters.proveedor !== 'all' && lead.Proveedor?.trim() !== filters.proveedor) return false;
+    if (filters.etapa !== 'all' && lead.Etapa?.trim() !== filters.etapa) return false;
 
     if (filters.month !== 'all') {
       if (!lead.parsedDate) return false;
@@ -247,10 +396,4 @@ export function filterLeads(leads: ProcessedLead[], filters: LeadFilters): Proce
 
     return true;
   });
-}
-
-/** Formatea la fecha para mostrar en la tabla, ej. "07 jul 2026". */
-export function formatLeadDate(date: Date | null): string {
-  if (!date) return 'Sin fecha';
-  return date.toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' });
 }

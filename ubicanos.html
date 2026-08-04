@@ -1,0 +1,1007 @@
+<div class="uj-guard">
+  <style>
+    .uj-guard {
+      margin-top: 10px !important;
+      position: relative !important;
+      z-index: 0 !important;
+      width: 100% !important;
+      clear: both !important;
+      font-family: 'Montserrat', sans-serif !important;
+      color: #333 !important;
+      background: #fff !important;
+    }
+
+    .uj-guard * {
+      margin: 0 !important;
+      padding: 0 !important;
+      box-sizing: border-box !important;
+    }
+
+    .uj-center {
+      display: flex !important;
+      justify-content: center !important;
+      width: 100% !important;
+    }
+
+    .uj-center > .container-uj {
+      width: 100% !important;
+      max-width: 85% !important;
+      margin: 0 auto !important;
+    }
+
+    .uj-guard .store-locator {
+      display: flex !important;
+      min-height: 600px !important;
+      width: 100% !important;
+      flex-direction: row-reverse !important;
+      justify-content: center !important;
+      gap: 40px !important;
+      align-items: flex-start !important;
+    }
+
+    .uj-guard .map-section {
+      flex: 1 !important;
+      background: #f5f5f5 !important;
+      position: sticky !important;
+      top: 60px !important;
+      height: calc(180px * 4 + 20px * 3) !important;
+      margin-top: 80px !important;
+      overflow: hidden !important;
+    }
+
+    .uj-guard .map-container,
+    .uj-guard #uj-leaflet-map {
+      width: 100% !important;
+      height: 100% !important;
+      min-height: 600px !important;
+    }
+
+    .uj-guard .map-reset-btn {
+      position: absolute !important;
+      top: 10px !important;
+      right: 10px !important;
+      display: none;
+      font-size: 12px !important;
+      color: #fff !important;
+      background: #EF922E !important;
+      border-radius: 99px !important;
+      padding: 8px 16px !important;
+      border: none !important;
+      cursor: pointer !important;
+      z-index: 999 !important;
+      font-weight: 600 !important;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.2) !important;
+    }
+
+    .uj-guard .stores-section {
+      flex: 1 !important;
+      padding: 0 20px !important;
+      background: #fff !important;
+      max-height: calc(200px * 4 + 20px * 3) !important;
+      display: flex !important;
+      flex-direction: column !important;
+      overflow: hidden !important;
+      position: sticky !important;
+      top: 60px !important;
+    }
+
+    .uj-guard .city-tabs-wrapper {
+      display: flex !important;
+      flex-direction: column !important;
+      gap: 12px !important;
+      margin-bottom: 20px !important;
+      align-items: flex-start !important;
+      position: relative !important;
+      z-index: 20 !important;
+      background: #fff !important;
+      padding-top: 20px !important;
+      padding-bottom: 10px !important;
+      flex-shrink: 0 !important;
+    }
+
+    .uj-guard .tabs-row {
+      display: flex !important;
+      flex-wrap: wrap !important;
+      gap: 6px !important;
+    }
+
+    .uj-guard .city-tab {
+      display: inline-block !important;
+      font-size: 11px !important;
+      color: #fff !important;
+      background: #d2d2d2 !important;
+      border-radius: 99px !important;
+      padding: 6px 12px !important;
+      border: none !important;
+      cursor: pointer !important;
+      font-weight: 600 !important;
+      transition: 0.2s !important;
+    }
+
+    .uj-guard .city-tab.active,
+    .uj-guard .city-tab:hover {
+      background: #EF922E !important;
+    }
+
+    .uj-guard .stores-list {
+      display: flex !important;
+      flex-direction: column !important;
+      gap: 20px !important;
+      overflow-y: auto !important;
+      flex: 1 !important;
+      padding-right: 5px !important;
+      padding-bottom: 80px !important;
+    }
+
+    .uj-guard .store-card {
+      display: flex !important;
+      flex-direction: row !important;
+      width: 100% !important;
+      background: #fafafa !important;
+      height: 180px !important;
+      position: relative !important;
+      overflow: hidden !important;
+      border: none !important;
+      transition: all 0.3s ease !important;
+      flex-shrink: 0 !important;
+      cursor: pointer !important;
+    }
+
+    .uj-guard .store-card:hover {
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1) !important;
+    }
+
+    .uj-guard .store-card.active {
+      box-shadow: 0 4px 12px rgba(255,140,0,0.2) !important;
+      background: #fff !important;
+    }
+
+    .uj-guard .slider-wrapper {
+      position: relative !important;
+      width: 180px !important;
+      height: 180px !important;
+      flex-shrink: 0 !important;
+      overflow: hidden !important;
+    }
+
+    .uj-guard .slider-track {
+      display: flex !important;
+      height: 100% !important;
+      width: 100% !important;
+      transition: transform 0.3s ease-in-out !important;
+    }
+
+    .uj-guard .store-image {
+      width: 100% !important;
+      height: 100% !important;
+      object-fit: cover !important;
+      flex-shrink: 0 !important;
+      display: block !important;
+    }
+
+    .uj-guard .slider-btn {
+      position: absolute !important;
+      top: 50% !important;
+      transform: translateY(-50%) !important;
+      width: 24px !important;
+      height: 24px !important;
+      background: rgba(0,0,0,0.5) !important;
+      color: #fff !important;
+      border: none !important;
+      border-radius: 50% !important;
+      cursor: pointer !important;
+      z-index: 5 !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      font-size: 12px !important;
+      opacity: 0;
+      transition: opacity 0.2s !important;
+    }
+
+    .uj-guard .slider-wrapper:hover .slider-btn {
+      opacity: 1 !important;
+    }
+
+    .uj-guard .slider-btn.prev {
+      left: 5px !important;
+    }
+
+    .uj-guard .slider-btn.next {
+      right: 5px !important;
+    }
+
+    .uj-guard .store-info {
+      flex: 1 !important;
+      padding: 15px !important;
+      display: flex !important;
+      flex-direction: column !important;
+      justify-content: flex-start !important;
+    }
+
+    .uj-guard .store-brand {
+      font-size: 14px !important;
+      font-weight: 700 !important;
+      color: #EF922E !important;
+      text-transform: uppercase !important;
+      margin-bottom: 4px !important;
+      letter-spacing: 0.5px !important;
+    }
+
+    .uj-guard .store-location {
+      font-size: 12px !important;
+      font-weight: 300 !important;
+      color: #888 !important;
+      text-transform: uppercase !important;
+      margin-bottom: 8px !important;
+    }
+
+    .uj-guard .store-address {
+      font-size: 11px !important;
+      color: #666 !important;
+      line-height: 1.4 !important;
+      max-width: 90% !important;
+    }
+
+    .uj-guard .store-actions {
+      position: absolute !important;
+      bottom: 15px !important;
+      right: 15px !important;
+    }
+
+    .uj-guard .btn-detail {
+      background: #EF922E !important;
+      color: #fff !important;
+      padding: 6px 12px !important;
+      border-radius: 99px !important;
+      font-size: 10px !important;
+      font-weight: 700 !important;
+      text-decoration: none !important;
+      text-transform: uppercase !important;
+      letter-spacing: 0.5px !important;
+    }
+
+    .uj-guard .stores-list::-webkit-scrollbar {
+      width: 4px !important;
+    }
+
+    .uj-guard .stores-list::-webkit-scrollbar-track {
+      background: #f5f5f5 !important;
+    }
+
+    .uj-guard .stores-list::-webkit-scrollbar-thumb {
+      background-color: #EF922E !important;
+      border-radius: 10px !important;
+    }
+
+    .leaflet-popup-content-wrapper {
+      border-radius: 4px !important;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.15) !important;
+    }
+
+    .leaflet-popup-content {
+      margin: 0 !important;
+    }
+
+    .leaflet-control-attribution {
+      font-size: 10px !important;
+    }
+
+    .custom-marker {
+      width: 20px;
+      height: 20px;
+      background: #EF922E;
+      border-radius: 50% 50% 50% 0;
+      transform: rotate(-45deg);
+    }
+
+    .custom-marker::after {
+      content: "";
+      width: 7px;
+      height: 7px;
+      background: #fff;
+      position: absolute;
+      border-radius: 50%;
+      top: 6px;
+      left: 6px;
+    }
+
+    @media (max-width: 968px) {
+      .uj-center > .container-uj {
+        max-width: 100% !important;
+      }
+
+      .uj-guard {
+        margin-top: 0 !important;
+      }
+
+      .uj-guard .store-locator {
+        flex-direction: column !important;
+        gap: 0 !important;
+        margin-top: 0 !important;
+      }
+
+      .uj-guard .map-section {
+        order: 1 !important;
+        width: 100% !important;
+        flex: none !important;
+        height: 400px !important;
+        position: relative !important;
+        top: 0 !important;
+        margin-top: 0 !important;
+      }
+
+      .uj-guard .map-container,
+      .uj-guard #uj-leaflet-map {
+        min-height: 400px !important;
+      }
+
+      .uj-guard .stores-section {
+        width: 100% !important;
+        padding: 0 20px !important;
+        position: relative !important;
+        top: 0 !important;
+        max-height: none !important;
+      }
+
+      .uj-guard .store-card {
+        flex-direction: column !important;
+        height: auto !important;
+        max-width: 100% !important;
+      }
+
+      .uj-guard .slider-wrapper {
+        width: 100% !important;
+        height: 220px !important;
+      }
+
+      .uj-guard .store-info {
+        padding: 15px !important;
+        padding-bottom: 50px !important;
+        position: relative !important;
+      }
+
+      .uj-guard .store-actions {
+        bottom: 15px !important;
+        right: 15px !important;
+      }
+    }
+  </style>
+
+  <div class="uj-center">
+    <div class="container-uj">
+      <div class="store-locator">
+
+        <div class="map-section">
+          <div class="map-container">
+            <div id="uj-leaflet-map"></div>
+          </div>
+          <button class="map-reset-btn" id="resetMapBtn">← Ver todo</button>
+        </div>
+
+        <div class="stores-section">
+          <div class="city-tabs-wrapper">
+            <div class="tabs-row">
+              <button class="city-tab" data-city="cancun">CANCÚN</button>
+              <button class="city-tab" data-city="playa">PLAYA DEL CARMEN</button>
+              <button class="city-tab" data-city="cabos">LOS CABOS</button>
+              <button class="city-tab" data-city="monterrey">MONTERREY</button>
+              <button class="city-tab" data-city="merida">MÉRIDA</button>
+            </div>
+          </div>
+
+          <div class="stores-list" id="storesList"></div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const leafletCSS = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+  const leafletJS = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+
+  function loadLeafletCSS() {
+    if (document.querySelector('link[href="' + leafletCSS + '"]')) return;
+
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = leafletCSS;
+    document.head.appendChild(link);
+  }
+
+  function loadLeafletJS(callback) {
+    if (window.L) {
+      callback();
+      return;
+    }
+
+    const existingScript = document.querySelector('script[src="' + leafletJS + '"]');
+
+    if (existingScript) {
+      existingScript.addEventListener('load', callback);
+      setTimeout(function () {
+        if (window.L) callback();
+      }, 500);
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.src = leafletJS;
+    script.onload = callback;
+    document.body.appendChild(script);
+  }
+
+  loadLeafletCSS();
+
+  loadLeafletJS(function () {
+    const stores = [
+      {
+        id: 1,
+        city: 'playa',
+        name: 'ULTRAJEWELS QUINTA AVENIDA',
+        address: '5ta Avenida Norte entre Calle 14 y 16, Centro, 77710 Playa del Carmen, Q.R.',
+        images: ['https://ultrajewels.com/wp-content/uploads/2025/12/ULTRA_2026-enero_tienda-Twin_playa-3-scaled.jpg'],
+        url: 'https://ultrajewels.com/boutiques/ultrajewels-quinta-avenida/',
+        lat: 20.628701,
+        lng: -87.0732615
+      },
+      {
+        id: 2,
+        city: 'cancun',
+        name: 'ULTRAJEWELS PUERTO CANCÚN',
+        address: 'Marina Puerto Cancún, Blvd. Kukulcán Km 1.5, 77500 Cancún, Q.R.',
+        images: ['https://ultrajewels.com/wp-content/uploads/2025/12/ULTRA_2026-enero_tienda-puerto-1-scaled.jpg'],
+        url: 'https://ultrajewels.com/boutiques/ultrajewels-puerto-cancun/',
+        lat: 21.1609728,
+        lng: -86.8085292
+      },
+      {
+        id: 3,
+        city: 'cancun',
+        name: 'ULTRAJEWELS LUXURY AVENUE CANCÚN',
+        address: 'Luxury Avenue Boutique Mall, Blvd. Kukulcán Km 13.5, Zona Hotelera, 77500 Cancún, Q.R.',
+        images: [
+          'https://ultrajewels.com/wp-content/uploads/2025/12/ULTRA_2026-enero_tienda-luxury-2-scaled.jpg',
+          'https://neo-emarketing.com/ultrajewels/wp-content/uploads/2025/10/quintaavenida.png'
+        ],
+        url: 'https://ultrajewels.com/boutiques/ultrajewels-luxury-avenue-cancun/',
+        lat: 21.1010994,
+        lng: -86.7659383
+      },
+      {
+        id: 4,
+        city: 'cabos',
+        name: 'ULTRAJEWELS MARINA CABO',
+        address: 'Blvd. Paseo de la Marina, Centro, 23450 Cabo San Lucas, B.C.S.',
+        image: 'https://ultrajewels.com/wp-content/uploads/2026/04/1-1.webp',
+        url: 'https://ultrajewels.com/boutiques/ultrajewels-marina-cabo-san-lucas/',
+        lat: 22.8855048,
+        lng: -109.9141334
+      },
+      {
+        id: 5,
+        city: 'cabos',
+        name: 'ULTRAJEWELS LUXURY AVENUE CABO SAN LUCAS',
+        address: 'Plaza Puerto Paraíso, Av. Lázaro Cárdenas, esquina Cabo Bello, Cabo San Lucas, B.C.S.',
+        image: 'https://ultrajewels.com/wp-content/uploads/2026/02/UJLUXURYAVENUELOSCABOS.jpg',
+        url: 'https://ultrajewels.com/boutiques/ultrajewels-luxury-avenue-avenue-los-cabos/',
+        lat: 22.8869904,
+        lng: -109.9115011
+      },
+      {
+        id: 7,
+        city: 'monterrey',
+        name: 'ULTRAJEWELS MONTERREY',
+        address: 'Calz. del Valle 409, Del Valle, 66220 San Pedro Garza García, N.L.',
+        image: 'https://ultrajewels.com/wp-content/uploads/2026/04/ULTRAJEWELS-1.webp',
+        url: 'https://ultrajewels.com/boutiques/ultrajewels-monterrey/',
+        lat: 25.654571,
+        lng: -100.3645749
+      },
+      {
+        id: 8,
+        city: 'cancun',
+        name: 'TAG Heuer Cancún',
+        address: 'Plaza la Isla, Km 12, Blvd. Kukulcán, Zona Hotelera, 77500 Cancún, Q.R.',
+        image: 'https://ultrajewels.com/wp-content/uploads/2026/01/1-1-1-scaled.jpg',
+        url: 'https://ultrajewels.com/boutiques/tag-heuer-cancun/',
+        lat: 21.1084681,
+        lng: -86.7640753
+      },
+      {
+        id: 9,
+        city: 'cabos',
+        name: 'TAG Heuer Cabo San Lucas',
+        address: 'Luxury Avenue Los Cabos, Av. Lázaro Cárdenas y Paseo Cabo Bello, Plaza Puerto Paraíso, 23410 Cabo San Lucas, B.C.S.',
+        image: 'https://ultrajewels.com/wp-content/uploads/2025/03/upscalemedia-transformed-2.png',
+        url: 'https://ultrajewels.com/boutiques/tag-heuer-cabo-san-lucas/',
+        lat: 22.8869097,
+        lng: -109.9114938
+      },
+      {
+        id: 10,
+        city: 'merida',
+        name: 'Montblanc Mérida',
+        address: 'Av. 24 Tab 30020 X 88 Colegio Teresiano La Isla Cabo Norte, 97345 Mérida, Yuc.',
+        image: 'https://ultrajewels.com/wp-content/uploads/2025/03/Montblanc-Merida-scaled-2.jpg',
+        url: 'https://ultrajewels.com/boutiques/montblanc-merida/',
+        lat: 21.0561448,
+        lng: -89.5990573
+      },
+      {
+        id: 11,
+        city: 'cancun',
+        name: 'Montblanc Marina Puerto Cancun',
+        address: 'Marina Puerto Cancún, 77500 Cancún, Q.R.',
+        image: 'https://ultrajewels.com/wp-content/uploads/2026/07/UJ-2026_julio-fachada_montblanc-1.jpg-scaled.jpeg',
+        url: 'https://ultrajewels.com/boutiques/montblanc-cancun/',
+        lat: 21.1607742,
+        lng: -86.8080823
+      },
+      {
+        id: 12,
+        city: 'cabos',
+        name: 'Montblanc Cabo San Lucas',
+        address: 'Blvd. Lázaro Cárdenas, El Medano Ejidal, Marina, 23479 Cabo San Lucas, B.C.S.',
+        image: 'https://ultrajewels.com/wp-content/uploads/2025/03/Montblanc-Los-Cabos-scaled-1.jpg',
+        url: 'https://ultrajewels.com/boutiques/montblanc-cabo-san-lucas/',
+        lat: 22.8904782,
+        lng: -109.9269251
+      },
+      {
+        id: 13,
+        city: 'cancun',
+        name: 'Cartier Cancún',
+        address: 'Blvd. Kukulcán KM 12, La Isla Cancún, Local S 21, Zona Hotelera, 77500 Cancún, Q.R.',
+        image: 'https://ultrajewels.com/wp-content/uploads/2025/08/Cartier-Boutique-La-Isla-CUN-2025-14-scaled.jpg',
+        url: 'https://ultrajewels.com/boutiques/cartier-la-isla-cancun/',
+        lat: 21.1121563,
+        lng: -86.7621965
+      },
+      {
+        id: 14,
+        city: 'cancun',
+        name: 'Hublot Cancún',
+        address: '5 Lt 18-10, Blvd. Kukulcán km 12.5, Zona Hotelera, 77500 Cancún, Q.R.',
+        image: 'https://ultrajewels.com/wp-content/uploads/2024/12/Hublot-Boutique-Cancun-Ultrajewels-La-Isla-16.jpg',
+        url: 'https://ultrajewels.com/boutiques/hublot-cancun/',
+        lat: 21.1095337,
+        lng: -86.7640945
+      },
+      {
+        id: 15,
+        city: 'cabos',
+        name: 'Breitling Cabo San Lucas',
+        address: 'Blvd. Paseo de la Marina Down Town, Supermanzana esquina, Centro Malecón, 23453 Cabo San Lucas, B.C.S.',
+        image: 'https://ultrajewels.com/wp-content/uploads/2025/03/Breitling-Los-Cabos-scaled-1.jpg',
+        url: 'https://ultrajewels.com/boutiques/breitling-cabo-san-lucas/',
+        lat: 22.8854665,
+        lng: -109.9140861
+      },
+      {
+        id: 16,
+        city: 'cancun',
+        name: 'Breitling Boutique La Isla Cancún',
+        address: 'Local S-10 5, Blvd. Kukulcán 10-km 12.5, Zona Hotelera, 77500 Cancún, Q.R.',
+        image: 'https://ultrajewels.com/wp-content/uploads/2025/08/DSC_9796-Mejorado-NR-copia1-scaled-1.webp',
+        url: 'https://ultrajewels.com/boutiques/breitling-la-isla-cancun/',
+        lat: 21.1102072,
+        lng: -86.7639903
+      },
+      
+       {
+        id: 17,
+        city: 'cancun',
+        name: 'Breitling Marina Puerto Cancún',
+        address: 'Marina Puerto Cancún, 77500 Cancún, Q.R.',
+        image: 'https://ultrajewels.com/wp-content/uploads/2026/07/Fachada-Breitling.png',
+        url: 'https://ultrajewels.com/boutiques/breitling-puerto-cancun/',
+        lat: 21.1102072,
+        lng: -86.7639903
+      },
+      
+    ];
+
+    let currentCity = 'todos';
+    let selectedStoreId = null;
+    let map = null;
+    let markerById = new Map();
+    let currentPopup = null;
+    let initialMapCenter = [23.0, -102.0];
+    let initialMapZoom = 5;
+    const sliderIndices = {};
+
+    const mapElement = document.getElementById('uj-leaflet-map');
+    const storesList = document.getElementById('storesList');
+    const resetBtn = document.getElementById('resetMapBtn');
+
+    if (!mapElement || !storesList || !resetBtn) return;
+    if (mapElement.dataset.initialized === 'true') return;
+
+    mapElement.dataset.initialized = 'true';
+
+    const customIcon = L.divIcon({
+      className: '',
+      html: '<div class="custom-marker"></div>',
+      iconSize: [30, 30],
+      iconAnchor: [15, 30],
+      popupAnchor: [0, -30]
+    });
+
+    function getBrandAndLocation(name) {
+      let brand = 'ULTRAJEWELS';
+      let location = name;
+
+      if (name.includes('ULTRAJEWELS')) {
+        location = name.replace('ULTRAJEWELS ', '');
+      } else if (name.includes('TAG Heuer')) {
+        brand = 'TAG HEUER';
+        location = name.replace('TAG Heuer ', '');
+      } else if (name.includes('Montblanc')) {
+        brand = 'MONTBLANC';
+        location = name.replace('Montblanc ', '');
+      } else if (name.includes('Cartier')) {
+        brand = 'CARTIER';
+        location = name.replace('Cartier ', '');
+      } else if (name.includes('Hublot')) {
+        brand = 'HUBLOT';
+        location = name.replace('Hublot ', '');
+      } else if (name.includes('Breitling')) {
+        brand = 'BREITLING';
+        location = name.replace('Breitling ', '');
+      }
+
+      return { brand, location };
+    }
+
+    function initLeafletMap() {
+      const firstStore = stores.find(function (s) {
+        return s.lat && s.lng;
+      });
+
+      const startCenter = firstStore ? [firstStore.lat, firstStore.lng] : initialMapCenter;
+      const startZoom = firstStore ? 15 : 5;
+
+      map = L.map('uj-leaflet-map', {
+        center: startCenter,
+        zoom: startZoom,
+        scrollWheelZoom: true
+      });
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(map);
+
+      stores.forEach(function (store) {
+        if (!store.lat || !store.lng) return;
+
+        const marker = L.marker([store.lat, store.lng], {
+          icon: customIcon,
+          title: store.name
+        }).addTo(map);
+
+        marker.on('click', function () {
+          selectStore(store.id);
+          openInfo(store.id);
+        });
+
+        markerById.set(store.id, marker);
+      });
+
+      fitAllStores();
+      renderStores();
+      setupEventListeners();
+      setupResetButton();
+
+      setTimeout(function () {
+        map.invalidateSize();
+        fitAllStores();
+      }, 300);
+
+      setTimeout(function () {
+        map.invalidateSize();
+      }, 1000);
+    }
+
+    function openInfo(id) {
+      const store = stores.find(function (s) {
+        return s.id === id;
+      });
+
+      const marker = markerById.get(id);
+
+      if (!store || !marker) return;
+
+      const data = getBrandAndLocation(store.name);
+
+      const popupContent = `
+        <div style="width:260px; padding:16px !important; font-family:'Montserrat', sans-serif !important; text-align:left;">
+          <div style="font-size:10px; color:#EF922E; font-weight:700; text-transform:uppercase;">
+            ${data.brand}
+          </div>
+
+          <div style="font-size:13px; font-weight:600; color:#222; margin-bottom:8px; text-transform:uppercase;">
+            ${data.location}
+          </div>
+
+          <div style="font-size:11px; color:#666; margin-bottom:12px; line-height:1.4;">
+            ${store.address}
+          </div>
+
+          <a
+            href="https://www.google.com/maps/dir/?api=1&destination=${store.lat},${store.lng}"
+            target="_blank"
+            style="display:inline-block; background:#EF922E; color:white; text-decoration:none; font-size:10px; font-weight:700; padding:6px 12px; border-radius:99px; text-transform:uppercase;"
+          >
+            Cómo llegar
+          </a>
+        </div>
+      `;
+
+      marker.bindPopup(popupContent, {
+        closeButton: true,
+        autoPan: true
+      }).openPopup();
+
+      currentPopup = marker;
+    }
+
+    function fitAllStores() {
+      const coords = stores
+        .filter(function (s) {
+          return s.lat && s.lng;
+        })
+        .map(function (s) {
+          return [s.lat, s.lng];
+        });
+
+      if (!coords.length || !map) return;
+
+      const bounds = L.latLngBounds(coords);
+
+      map.fitBounds(bounds, {
+        padding: [40, 40]
+      });
+
+      setTimeout(function () {
+        initialMapCenter = map.getCenter();
+        initialMapZoom = map.getZoom();
+      }, 300);
+    }
+
+    function fitCity(city) {
+      const coords = stores
+        .filter(function (s) {
+          return s.city === city && s.lat && s.lng;
+        })
+        .map(function (s) {
+          return [s.lat, s.lng];
+        });
+
+      if (!coords.length || !map) return;
+
+      if (coords.length === 1) {
+        map.setView(coords[0], 15);
+      } else {
+        map.fitBounds(L.latLngBounds(coords), {
+          padding: [40, 40]
+        });
+      }
+
+      setTimeout(function () {
+        map.invalidateSize();
+      }, 300);
+    }
+
+    function selectStore(id, skipScroll) {
+      selectedStoreId = id;
+
+      const store = stores.find(function (s) {
+        return s.id === id;
+      });
+
+      if (!store || !map) return;
+
+      if (store.lat && store.lng) {
+        map.setView([store.lat, store.lng], 15, {
+          animate: true
+        });
+      }
+
+      setResetVisibility();
+
+      document.querySelectorAll('.uj-guard .store-card').forEach(function (card) {
+        const active = parseInt(card.dataset.storeId) === id;
+        card.classList.toggle('active', active);
+
+        if (active && !skipScroll && window.innerWidth > 968) {
+          setTimeout(function () {
+            card.scrollIntoView({
+              behavior: 'smooth',
+              block: 'center',
+              inline: 'nearest'
+            });
+          }, 300);
+        }
+      });
+    }
+
+    function renderStores() {
+      const filtered = currentCity === 'todos'
+        ? stores
+        : stores.filter(function (s) {
+            return s.city === currentCity;
+          });
+
+      if (!filtered.length) {
+        storesList.innerHTML = '<div class="no-stores">No hay tiendas disponibles.</div>';
+        return;
+      }
+
+      storesList.innerHTML = filtered.map(function (store) {
+        const data = getBrandAndLocation(store.name);
+        const imgs = store.images || [store.image];
+
+        if (sliderIndices[store.id] === undefined) {
+          sliderIndices[store.id] = 0;
+        }
+
+        const buttons = imgs.length > 1
+          ? `
+            <button class="slider-btn prev" data-store="${store.id}" data-dir="-1">❮</button>
+            <button class="slider-btn next" data-store="${store.id}" data-dir="1">❯</button>
+          `
+          : '';
+
+        const slidesHTML = imgs.map(function (src) {
+          return `<img src="${src}" class="store-image" draggable="false">`;
+        }).join('');
+
+        return `
+          <div class="store-card ${selectedStoreId === store.id ? 'active' : ''}" data-store-id="${store.id}">
+            <div class="slider-wrapper">
+              <div class="slider-track" id="track-${store.id}">
+                ${slidesHTML}
+              </div>
+              ${buttons}
+            </div>
+
+            <div class="store-info">
+              <div class="store-brand">${data.brand}</div>
+              <div class="store-location">${data.location}</div>
+              <div class="store-address">${store.address}</div>
+
+              <div class="store-actions">
+                <a class="btn-detail" href="${store.url}" target="_blank">
+                  Ver Boutique
+                </a>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      document.querySelectorAll('.uj-guard .store-card').forEach(function (card) {
+        card.addEventListener('click', function (e) {
+          if (e.target.closest('.slider-btn') || e.target.closest('.btn-detail')) return;
+
+          const id = parseInt(card.dataset.storeId);
+          const isMobile = window.innerWidth <= 968;
+
+          selectStore(id, isMobile);
+          openInfo(id);
+
+          if (isMobile) {
+            setTimeout(function () {
+              const mapSection = document.querySelector('.uj-guard .map-section');
+              const yOffset = -20;
+              const y = mapSection.getBoundingClientRect().top + window.pageYOffset + yOffset;
+
+              window.scrollTo({
+                top: y,
+                behavior: 'smooth'
+              });
+            }, 150);
+          }
+        });
+      });
+
+      document.querySelectorAll('.uj-guard .slider-btn').forEach(function (btn) {
+        btn.addEventListener('click', function (e) {
+          e.stopPropagation();
+          e.preventDefault();
+
+          const storeId = parseInt(this.dataset.store);
+          const direction = parseInt(this.dataset.dir);
+
+          moveSlide(storeId, direction);
+        });
+      });
+    }
+
+    function moveSlide(storeId, direction) {
+      const store = stores.find(function (s) {
+        return s.id === storeId;
+      });
+
+      if (!store) return;
+
+      const imgs = store.images || [store.image];
+
+      if (!imgs || imgs.length <= 1) return;
+
+      let current = sliderIndices[storeId];
+      let next = current + direction;
+
+      if (next < 0) next = imgs.length - 1;
+      if (next >= imgs.length) next = 0;
+
+      sliderIndices[storeId] = next;
+
+      const track = document.getElementById('track-' + storeId);
+
+      if (track && track.parentElement) {
+        const slideWidth = track.parentElement.offsetWidth;
+        track.style.transform = 'translateX(-' + next * slideWidth + 'px)';
+      }
+    }
+
+    function setupResetButton() {
+      resetBtn.addEventListener('click', function () {
+        selectedStoreId = null;
+        currentCity = 'todos';
+
+        if (currentPopup) {
+          currentPopup.closePopup();
+        }
+
+        document.querySelectorAll('.uj-guard .store-card').forEach(function (card) {
+          card.classList.remove('active');
+        });
+
+        document.querySelectorAll('.uj-guard .city-tab').forEach(function (tab) {
+          tab.classList.remove('active');
+        });
+
+        fitAllStores();
+        renderStores();
+        setResetVisibility();
+      });
+    }
+
+    function setupEventListeners() {
+      document.querySelectorAll('.uj-guard .city-tab').forEach(function (tab) {
+        tab.addEventListener('click', function () {
+          document.querySelectorAll('.uj-guard .city-tab').forEach(function (t) {
+            t.classList.remove('active');
+          });
+
+          this.classList.add('active');
+
+          currentCity = this.dataset.city;
+          selectedStoreId = null;
+
+          if (currentPopup) {
+            currentPopup.closePopup();
+          }
+
+          renderStores();
+          fitCity(currentCity);
+          setResetVisibility();
+        });
+      });
+    }
+
+    function setResetVisibility() {
+      const shouldShow = selectedStoreId || currentCity !== 'todos';
+      resetBtn.style.display = shouldShow ? 'inline-block' : 'none';
+    }
+
+    initLeafletMap();
+  });
+})();
+</script>

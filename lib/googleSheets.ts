@@ -14,6 +14,11 @@ const SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly'];
  *
  * La cuenta de servicio debe tener acceso de "Lector" (Viewer) al Sheet,
  * compartido explícitamente con su correo.
+ *
+ * IMPORTANTE: las columnas del Sheet deben llamarse EXACTAMENTE
+ * (encabezados de la primera fila): Equipo, Fuente, Proveedor, Formulario,
+ * Etapa, Comentarios. Si el Zap las escribe con otro nombre, ajusta los
+ * row.get('...') de abajo para que coincidan.
  */
 async function fetchLeadsFromSheet(): Promise<RawLead[]> {
   const { GOOGLE_SERVICE_ACCOUNT_EMAIL, GOOGLE_PRIVATE_KEY, GOOGLE_SHEET_ID } = process.env;
@@ -37,10 +42,22 @@ async function fetchLeadsFromSheet(): Promise<RawLead[]> {
     const doc = new GoogleSpreadsheet(GOOGLE_SHEET_ID, jwt);
     await doc.loadInfo();
 
+    console.log(
+      '[googleSheets] Hojas/pestañas disponibles en el documento:',
+      doc.sheetsByIndex.map((s) => `"${s.title}" (${s.rowCount} filas)`),
+    );
+
     // Asume que los leads viven en la primera hoja. Si usas una hoja
     // específica, cámbialo por doc.sheetsByTitle['Leads'].
     const sheet = doc.sheetsByIndex[0];
     const rows = await sheet.getRows();
+
+    console.log(`[googleSheets] Usando la hoja: "${sheet.title}" | Total de filas leídas: ${rows.length}`);
+    console.log('[googleSheets] Encabezados reales del Sheet:', sheet.headerValues);
+    console.log(
+      '[googleSheets] Valores de "Fuente" en TODAS las filas (no solo las primeras 5):',
+      rows.map((row) => row.get('Fuente')).filter((v) => v && v.trim() !== ''),
+    );
 
     return rows.map((row) => ({
       Fecha: row.get('Fecha') ?? '',
@@ -51,6 +68,13 @@ async function fetchLeadsFromSheet(): Promise<RawLead[]> {
       Presupuesto: row.get('Presupuesto') ?? '',
       Motivo: row.get('Motivo') ?? '',
       TiempoParaInvertir: row.get('TiempoParaInvertir') ?? '',
+      // --- Columnas nuevas ---
+      Equipo: row.get('Equipo') ?? '',
+      Fuente: row.get('Fuente') ?? '',
+      Proveedor: row.get('Proveedor') ?? '',
+      Formulario: row.get('Formulario') ?? '',
+      Etapa: row.get('Etapa') ?? '',
+      Comentarios: row.get('Comentarios') ?? '',
     }));
   } catch (error) {
     console.error('[googleSheets] Error al leer Google Sheets:', error);
