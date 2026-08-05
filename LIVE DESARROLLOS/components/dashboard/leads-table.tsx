@@ -1,8 +1,8 @@
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/LIVE DESARROLLOS/components/ui/table';
-import { Badge } from '@/LIVE DESARROLLOS/components/ui/badge';
-import { ScrollArea } from '@/LIVE DESARROLLOS/components/ui/scroll-area';
-import { formatLeadDate } from '@/LIVE DESARROLLOS/lib/leadUtils';
-import type { ProcessedLead } from '@/LIVE DESARROLLOS/lib/types';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Badge } from '@/components/ui/badge';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { formatLeadDate } from '@/lib/leadUtils';
+import type { ProcessedLead } from '@/lib/types';
 
 /**
  * Colorea cualquier texto de estado/etapa como píldora, según palabras

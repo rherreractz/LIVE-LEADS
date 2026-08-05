@@ -379,6 +379,38 @@ export function getUniqueMonths(leads: ProcessedLead[]): { value: string; label:
     .sort((a, b) => b.value.localeCompare(a.value));
 }
 
+/**
+ * Búsqueda libre por texto: compara contra nombre, correo, teléfono,
+ * campaña, comentarios y los campos resueltos de HubSpot (etapa, estado,
+ * propietario). Coincidencia por substring, sin distinguir mayúsculas.
+ */
+export function searchLeads(leads: ProcessedLead[], query: string): ProcessedLead[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return leads;
+
+  return leads.filter((lead) => {
+    const haystack = [
+      lead.Nombre,
+      lead.Correo,
+      lead.Telefono,
+      lead.Campana,
+      lead.Comentarios,
+      lead.Equipo,
+      lead.Fuente,
+      lead.Proveedor,
+      lead.Etapa,
+      lead.estadoLeadCrm,
+      lead.etapaLeadCrm,
+      lead.propietarioCrm,
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+
+    return haystack.includes(q);
+  });
+}
+
 /** Aplica todos los filtros activos sobre el arreglo de leads procesados. */
 export function filterLeads(leads: ProcessedLead[], filters: LeadFilters): ProcessedLead[] {
   return leads.filter((lead) => {

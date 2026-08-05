@@ -1,11 +1,12 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Download } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/LIVE DESARROLLOS/components/ui/card';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/LIVE DESARROLLOS/components/ui/select';
-import { Tabs, TabsList, TabsTrigger } from '@/LIVE DESARROLLOS/components/ui/tabs';
-import { Button } from '@/LIVE DESARROLLOS/components/ui/button';
+import { Download, Search, X } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { LeadsPerDayChart, MotivoDonutChart, BudgetBarChart } from './lead-charts';
 import { LeadsTable } from './leads-table';
 import {
@@ -19,11 +20,12 @@ import {
   getUniqueProveedores,
   getUniqueEtapas,
   filterLeads,
+  searchLeads,
   DEFAULT_LEAD_FILTERS,
   type LeadFilters,
-} from '@/LIVE DESARROLLOS/lib/leadUtils';
-import { exportLeadsToPdf } from '@/LIVE DESARROLLOS/lib/exportPdf';
-import type { ProcessedLead } from '@/LIVE DESARROLLOS/lib/types';
+} from '@/lib/leadUtils';
+import { exportLeadsToPdf } from '@/lib/exportPdf';
+import type { ProcessedLead } from '@/lib/types';
 
 function isToday(date: Date | null) {
   if (!date) return false;
@@ -58,7 +60,21 @@ function buildFiltersSummary(filters: LeadFilters, months: { value: string; labe
   return parts.join(' · ');
 }
 
-export function DashboardShell({ leads }: { leads: ProcessedLead[] }) {
+const LOAD_MORE_STEP = 200;
+
+export function DashboardShell({
+  leads: initialLeads,
+  initialHubspotLimit,
+}: {
+  leads: ProcessedLead[];
+  initialHubspotLimit: number;
+}) {
+  const [leads, setLeads] = useState(initialLeads);
+  const [hubspotLimit, setHubspotLimit] = useState(initialHubspotLimit);
+  const [hasMoreLeads, setHasMoreLeads] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
   const [filters, setFilters] = useState<LeadFilters>(DEFAULT_LEAD_FILTERS);
   const [isExporting, setIsExporting] = useState(false);
 
@@ -71,7 +87,10 @@ export function DashboardShell({ leads }: { leads: ProcessedLead[] }) {
   const proveedores = useMemo(() => getUniqueProveedores(leads), [leads]);
   const etapas = useMemo(() => getUniqueEtapas(leads), [leads]);
 
-  const filteredLeads = useMemo(() => filterLeads(leads, filters), [leads, filters]);
+  const filteredLeads = useMemo(
+    () => searchLeads(filterLeads(leads, filters), search),
+    [leads, filters, search]
+  );
 
   const validLeads = useMemo(() => filteredLeads.filter((l) => l.status === 'Válido'), [filteredLeads]);
   const duplicateLeads = useMemo(() => filteredLeads.filter((l) => l.status === 'Duplicado'), [filteredLeads]);
@@ -94,7 +113,37 @@ export function DashboardShell({ leads }: { leads: ProcessedLead[] }) {
     filters.equipo !== 'all' ||
     filters.fuente !== 'all' ||
     filters.proveedor !== 'all' ||
-    filters.etapa !== 'all';
+    filters.etapa !== 'all' ||
+    search.trim() !== '';
+
+  function handleClearFilters() {
+    setFilters(DEFAULT_LEAD_FILTERS);
+    setSearch('');
+  }
+
+  async function handleLoadMore() {
+    setIsLoadingMore(true);
+    setLoadMoreError(null);
+    try {
+      const nextLimit = hubspotLimit + LOAD_MORE_STEP;
+      const res = await fetch(`/api/leads?hubspotLimit=${nextLimit}`);
+      if (!res.ok) throw new Error(`Error ${res.status}`);
+
+      const data = (await res.json()) as {
+        leads: (Omit<ProcessedLead, 'parsedDate'> & { parsedDate: string | null })[];
+        hubspotLimit: number;
+        hasMore: boolean;
+      };
+      // El JSON serializa Date como string ISO; hay que revivirlo a Date.
+      setLeads(data.leads.map((lead) => ({ ...lead, parsedDate: lead.parsedDate ? new Date(lead.parsedDate) : null })));
+      setHubspotLimit(data.hubspotLimit);
+      setHasMoreLeads(data.hasMore);
+    } catch {
+      setLoadMoreError('No se pudieron cargar más leads. Intenta de nuevo.');
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }
 
   async function handleExportPdf() {
     setIsExporting(true);
@@ -112,6 +161,26 @@ export function DashboardShell({ leads }: { leads: ProcessedLead[] }) {
     <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden px-4 py-4 sm:px-6">
       {/* Filtros */}
       <section className="flex shrink-0 flex-wrap items-center gap-2">
+        <div className="relative min-w-[160px] flex-1 sm:w-[220px] sm:flex-none">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-500" />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Buscar nombre, correo, teléfono…"
+            className="h-9 border-zinc-800 bg-zinc-900 pl-8 pr-7 text-sm text-zinc-200 placeholder:text-zinc-500"
+          />
+          {search && (
+            <button
+              type="button"
+              onClick={() => setSearch('')}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-200"
+              aria-label="Limpiar búsqueda"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+
         <Select value={filters.campaign} onValueChange={(value) => setFilters((f) => ({ ...f, campaign: value || 'all' }))}>
           <SelectTrigger className="h-9 min-w-[130px] flex-1 border-zinc-800 bg-zinc-900 text-sm text-zinc-200 sm:w-[180px] sm:flex-none">
             <SelectValue placeholder="Campaña">{(value: string) => (value === 'all' ? 'Campaña' : value)}</SelectValue>
@@ -230,7 +299,7 @@ export function DashboardShell({ leads }: { leads: ProcessedLead[] }) {
             variant="ghost"
             size="sm"
             className="h-9 text-xs text-zinc-500 hover:bg-white/5 hover:text-zinc-200"
-            onClick={() => setFilters(DEFAULT_LEAD_FILTERS)}
+            onClick={handleClearFilters}
           >
             Limpiar filtros
           </Button>
@@ -245,17 +314,31 @@ export function DashboardShell({ leads }: { leads: ProcessedLead[] }) {
       <section className="grid min-h-0 flex-1 grid-cols-12 gap-3">
         <Card className="col-span-12 flex min-h-0 flex-col border-zinc-800 bg-zinc-900 shadow-none lg:col-span-8">
           <CardHeader className="flex shrink-0 flex-row items-center justify-between gap-2 p-4 pb-2">
-            <CardTitle className="text-base font-medium text-zinc-50">Leads</CardTitle>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={isExporting || sortedLeads.length === 0}
-              onClick={handleExportPdf}
-              className="h-8 gap-1.5 border-zinc-800 bg-zinc-900 text-xs text-zinc-200 hover:bg-zinc-800"
-            >
-              <Download className="h-3.5 w-3.5" />
-              {isExporting ? 'Generando…' : 'Exportar PDF'}
-            </Button>
+            <div className="flex items-center gap-2">
+              <CardTitle className="text-base font-medium text-zinc-50">Leads</CardTitle>
+              {loadMoreError && <span className="text-xs text-red-400">{loadMoreError}</span>}
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={isLoadingMore || !hasMoreLeads}
+                onClick={handleLoadMore}
+                className="h-8 gap-1.5 border-zinc-800 bg-zinc-900 text-xs text-zinc-200 hover:bg-zinc-800"
+              >
+                {isLoadingMore ? 'Cargando…' : !hasMoreLeads ? 'No hay más leads' : `Cargar ${LOAD_MORE_STEP} más`}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={isExporting || sortedLeads.length === 0}
+                onClick={handleExportPdf}
+                className="h-8 gap-1.5 border-zinc-800 bg-zinc-900 text-xs text-zinc-200 hover:bg-zinc-800"
+              >
+                <Download className="h-3.5 w-3.5" />
+                {isExporting ? 'Generando…' : 'Exportar PDF'}
+              </Button>
+            </div>
           </CardHeader>
           <CardContent className="min-h-0 flex-1 p-0">
             <LeadsTable leads={sortedLeads} />
