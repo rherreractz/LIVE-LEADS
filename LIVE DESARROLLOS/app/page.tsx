@@ -1,7 +1,7 @@
-import { getLeads } from '@/lib/googleSheets';
-import { getHubspotStatusMap } from '@/lib/hubspot';
-import { processLeads, mergeHubspotStatus, getHubspotOnlyRawLeads } from '@/lib/leadUtils';
-import { DashboardShell } from '@/components/dashboard/dashboard-shell';
+import { getLeads } from '@/LIVE DESARROLLOS/lib/googleSheets';
+import { getHubspotStatusMap } from '@/LIVE DESARROLLOS/lib/hubspot';
+import { processLeads, mergeHubspotStatus, getHubspotOnlyRawLeads } from '@/LIVE DESARROLLOS/lib/leadUtils';
+import { DashboardShell } from '@/LIVE DESARROLLOS/components/dashboard/dashboard-shell';
 
 // Revalida la página cada 60s (coordinado con el caché de getLeads() y
 // getHubspotStatusMap()).

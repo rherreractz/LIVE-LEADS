@@ -2,10 +2,10 @@
 
 import { useMemo, useState } from 'react';
 import { Download } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/LIVE DESARROLLOS/components/ui/card';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/LIVE DESARROLLOS/components/ui/select';
+import { Tabs, TabsList, TabsTrigger } from '@/LIVE DESARROLLOS/components/ui/tabs';
+import { Button } from '@/LIVE DESARROLLOS/components/ui/button';
 import { LeadsPerDayChart, MotivoDonutChart, BudgetBarChart } from './lead-charts';
 import { LeadsTable } from './leads-table';
 import {
@@ -21,9 +21,9 @@ import {
   filterLeads,
   DEFAULT_LEAD_FILTERS,
   type LeadFilters,
-} from '@/lib/leadUtils';
-import { exportLeadsToPdf } from '@/lib/exportPdf';
-import type { ProcessedLead } from '@/lib/types';
+} from '@/LIVE DESARROLLOS/lib/leadUtils';
+import { exportLeadsToPdf } from '@/LIVE DESARROLLOS/lib/exportPdf';
+import type { ProcessedLead } from '@/LIVE DESARROLLOS/lib/types';
 
 function isToday(date: Date | null) {
   if (!date) return false;

@@ -15,7 +15,7 @@ import {
   BarChart,
   Bar,
 } from 'recharts';
-import { ACCENT, GRAYS } from '@/lib/theme';
+import { ACCENT, GRAYS } from '@/LIVE DESARROLLOS/lib/theme';
 
 // ---------------------------------------------------------------------------
 // Leads por Día — Area chart (llena el 100% del contenedor padre)
