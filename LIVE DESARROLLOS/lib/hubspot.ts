@@ -53,13 +53,13 @@ export interface HubspotStatusMap {
   byEmail: Map<string, HubspotContactInfo>;
   /** TODOS los contactos traídos de HubSpot, en el orden que llegaron (más reciente primero). */
   all: HubspotContactInfo[];
-  /** Límite de contactos efectivamente usado en esta llamada (útil para el botón "cargar más" del cliente). */
+  /** Límite efectivo usado en este fetch (para saber si "Cargar más" tiene sentido). */
   limit: number;
 }
 
 const OWNER_PROPERTY = 'hubspot_owner_id';
-const DEFAULT_CONTACT_LIMIT = 300;
-const EMPTY_MAP: HubspotStatusMap = { byPhone: new Map(), byEmail: new Map(), all: [], limit: DEFAULT_CONTACT_LIMIT };
+const DEFAULT_LIMIT = 300;
+const EMPTY_MAP: HubspotStatusMap = { byPhone: new Map(), byEmail: new Map(), all: [], limit: DEFAULT_LIMIT };
 
 function normalizePhoneKey(phone?: string | null): string {
   if (!phone) return '';
@@ -156,7 +156,7 @@ async function fetchPropertyLabelMap(accessToken: string, propertyName: string):
  * = 60` en app/page.tsx (caché de la página completa), así que en
  * producción esto igual no se recalcula en cada visita.
  */
-export async function getHubspotStatusMap(limitOverride?: number): Promise<HubspotStatusMap> {
+export async function getHubspotStatusMap(overrideLimit?: number): Promise<HubspotStatusMap> {
   const { HUBSPOT_ACCESS_TOKEN, HUBSPOT_LEAD_STAGE_PROPERTY } = process.env;
 
   if (!HUBSPOT_ACCESS_TOKEN) {
@@ -178,8 +178,13 @@ export async function getHubspotStatusMap(limitOverride?: number): Promise<Hubsp
     ...extraPropNames,
   ];
 
-  const totalLimitRaw = limitOverride ?? Number(process.env.HUBSPOT_CONTACT_LIMIT);
-  const totalLimit = Number.isFinite(totalLimitRaw) && totalLimitRaw > 0 ? totalLimitRaw : DEFAULT_CONTACT_LIMIT;
+  // `overrideLimit` (usado por /api/leads para "Cargar más") tiene prioridad
+  // sobre HUBSPOT_CONTACT_LIMIT; si ninguno está definido, cae en DEFAULT_LIMIT.
+  const totalLimit = (() => {
+    if (Number.isFinite(overrideLimit) && (overrideLimit as number) > 0) return overrideLimit as number;
+    const envLimit = Number(process.env.HUBSPOT_CONTACT_LIMIT);
+    return Number.isFinite(envLimit) && envLimit > 0 ? envLimit : DEFAULT_LIMIT;
+  })();
 
   const createdSinceRaw = process.env.HUBSPOT_CREATED_SINCE;
   const filterGroups = createdSinceRaw
@@ -274,7 +279,7 @@ export async function getHubspotStatusMap(limitOverride?: number): Promise<Hubsp
     } while (after && all.length < totalLimit);
   } catch (error) {
     console.error('[hubspot] Error al leer HubSpot:', error);
-    return EMPTY_MAP;
+    return { byPhone: new Map(), byEmail: new Map(), all: [], limit: totalLimit };
   }
 
   console.log(`[hubspot] Contactos obtenidos de HubSpot: ${all.length} (límite configurado: ${totalLimit})`);

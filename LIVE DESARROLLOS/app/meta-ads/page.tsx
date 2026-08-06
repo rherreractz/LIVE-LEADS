@@ -1,8 +1,7 @@
-import Link from 'next/link';
 import { getLeads } from '@/lib/googleSheets';
 import { getHubspotStatusMap } from '@/lib/hubspot';
 import { processLeads, mergeHubspotStatus, getHubspotOnlyRawLeads } from '@/lib/leadUtils';
-import { DashboardShell } from '@/components/dashboard/dashboard-shell';
+import { DashboardTabs } from '@/components/dashboard/dashboard-tabs';
 
 // Revalida la página cada 60s (coordinado con el caché de getLeads() y
 // getHubspotStatusMap()).
@@ -35,14 +34,11 @@ export default async function DashboardPage() {
           <h1 className="text-xl font-semibold tracking-tight text-zinc-50">Panel de Reportes</h1>
         </div>
         <div className="flex items-center gap-4">
-          <Link href="/meta-ads" className="text-xs text-zinc-500 hover:text-zinc-300">
-            Auditoría Meta Ads →
-          </Link>
           <p className="text-xs text-zinc-500">Última actualización: {lastUpdated}</p>
         </div>
       </header>
 
-      <DashboardShell leads={leads} initialHubspotLimit={hubspotMap.limit} />
+      <DashboardTabs leads={leads} initialHubspotLimit={hubspotMap.limit} />
     </div>
   );
 }

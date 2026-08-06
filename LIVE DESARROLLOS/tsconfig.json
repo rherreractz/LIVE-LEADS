@@ -31,7 +31,7 @@
     "**/*.mts",
     "**/*.ts",
     "**/*.tsx"
-  ],
+, "app/api/login"  ],
   "exclude": [
     "node_modules"
   ]
