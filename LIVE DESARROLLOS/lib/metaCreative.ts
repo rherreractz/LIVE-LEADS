@@ -12,6 +12,17 @@
 const GRAPH_BASE = 'https://graph.facebook.com';
 
 /**
+ * TypeScript trata Buffer.buffer como ArrayBufferLike (podría en teoría
+ * ser un SharedArrayBuffer), pero el constructor de Blob exige
+ * ArrayBuffer específicamente. En la práctica, un Buffer de Node siempre
+ * está respaldado por un ArrayBuffer real — esta función solo satisface
+ * al type-checker sin cambiar nada en tiempo de ejecución.
+ */
+function bufferToArrayBuffer(buffer: Buffer): ArrayBuffer {
+  return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer;
+}
+
+/**
  * Mapa de textos de botón en español (los que genera Claude) a los
  * valores exactos que acepta la API de Meta (catálogo cerrado, en
  * inglés). Si el texto generado no hace match con nada de la lista, se
@@ -151,7 +162,7 @@ export async function createPausedAdWithImage(input: CreateAdInput): Promise<Cre
   if (input.image.kind === 'file') {
     imageForm.set('source', input.image.file, input.image.file.name);
   } else {
-    const blob = new Blob([input.image.buffer], { type: input.image.mimeType });
+    const blob = new Blob([bufferToArrayBuffer(input.image.buffer)], { type: input.image.mimeType });
     imageForm.set('source', blob, input.image.filename);
   }
 
@@ -255,7 +266,7 @@ export async function createPausedAdWithVideo(input: CreateVideoAdInput): Promis
   if (input.video.kind === 'file') {
     videoForm.set('source', input.video.file, input.video.file.name);
   } else {
-    const blob = new Blob([input.video.buffer], { type: input.video.mimeType });
+    const blob = new Blob([bufferToArrayBuffer(input.video.buffer)], { type: input.video.mimeType });
     videoForm.set('source', blob, input.video.filename);
   }
 
