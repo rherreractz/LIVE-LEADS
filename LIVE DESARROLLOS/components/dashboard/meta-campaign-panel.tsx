@@ -60,9 +60,10 @@ interface CreateAdState {
   error: string | null;
   result: { adId: string; adsManagerUrl: string } | null;
   imageFile: File | null;
+  videoFile: File | null;
 }
 
-const EMPTY_AD_STATE: CreateAdState = { loading: false, error: null, result: null, imageFile: null };
+const EMPTY_AD_STATE: CreateAdState = { loading: false, error: null, result: null, imageFile: null, videoFile: null };
 
 export function MetaCampaignPanel() {
   const namedAccounts = getNamedAccounts();
@@ -74,14 +75,43 @@ export function MetaCampaignPanel() {
   const [businessDescription, setBusinessDescription] = useState('');
   const [targetDescription, setTargetDescription] = useState('');
   const [dailyBudgetMXN, setDailyBudgetMXN] = useState('300');
+  const [numVariants, setNumVariants] = useState('3');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<CampaignResult | null>(null);
 
-  // Para el paso final: crear el Ad de verdad (imagen + copy elegido).
+  // Para el paso final: crear el Ad de verdad (imagen/video + copy elegido).
   const [pageId, setPageId] = useState(process.env.NEXT_PUBLIC_META_PAGE_ID || '');
   const [destinationLink, setDestinationLink] = useState('');
+  // Nombre del Instant Form de Meta a usar (búsqueda automática por nombre
+  // en la Página — déjalo vacío para usar destinationLink como sitio web
+  // normal en vez de un formulario nativo).
+  const [leadFormName, setLeadFormName] = useState('Live General');
+  const [leadForms, setLeadForms] = useState<{ id: string; name: string; status: string }[]>([]);
+  const [selectedLeadFormId, setSelectedLeadFormId] = useState('');
+  const [loadingForms, setLoadingForms] = useState(false);
   const [adStates, setAdStates] = useState<Record<number, CreateAdState>>({});
+
+  async function handleLoadLeadForms() {
+    if (!pageId.trim()) {
+      setError('Escribe el Page ID primero para poder listar sus formularios.');
+      return;
+    }
+    setLoadingForms(true);
+    try {
+      const res = await fetch(`/api/meta-campaign/lead-forms?pageId=${encodeURIComponent(pageId.trim())}`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'No se pudieron cargar los formularios.');
+      setLeadForms(json.forms ?? []);
+      // Si alguno coincide con el nombre que tenías escrito, lo preselecciona.
+      const match = (json.forms ?? []).find((f: { name: string }) => f.name.toLowerCase().includes(leadFormName.trim().toLowerCase()));
+      setSelectedLeadFormId(match?.id ?? json.forms?.[0]?.id ?? '');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Ocurrió un error al cargar los formularios.');
+    } finally {
+      setLoadingForms(false);
+    }
+  }
 
   function getAdState(index: number): CreateAdState {
     return adStates[index] ?? EMPTY_AD_STATE;
@@ -94,8 +124,8 @@ export function MetaCampaignPanel() {
   async function handleCreateAd(index: number, variant: AdCopyVariant) {
     if (!result) return;
     const state = getAdState(index);
-    if (!state.imageFile) {
-      setAdState(index, { error: 'Elige una imagen primero.' });
+    if (!state.imageFile && !state.videoFile) {
+      setAdState(index, { error: 'Elige una imagen o video primero.' });
       return;
     }
     if (!pageId.trim() || !destinationLink.trim()) {
@@ -114,7 +144,12 @@ export function MetaCampaignPanel() {
       form.set('destinationLink', destinationLink.trim());
       form.set('ctaText', variant.cta);
       form.set('adName', `${result.brief.campaignName} — Variante ${index + 1}`);
-      form.set('image', state.imageFile);
+      if (selectedLeadFormId) form.set('leadFormId', selectedLeadFormId);
+      if (state.videoFile) {
+        form.set('video', state.videoFile);
+      } else if (state.imageFile) {
+        form.set('image', state.imageFile);
+      }
 
       const res = await fetch('/api/meta-campaign/create-ad', { method: 'POST', body: form });
       const json = await res.json();
@@ -137,36 +172,115 @@ export function MetaCampaignPanel() {
       ? prompt.trim().length > 0
       : businessDescription.trim().length > 0 && targetDescription.trim().length > 0 && Number(dailyBudgetMXN) > 0);
 
+  async function runGenerateCampaign(): Promise<CampaignResult> {
+    const payload =
+      mode === 'prompt'
+        ? { accountId: effectiveAccountId, prompt, numVariants: Number(numVariants) }
+        : {
+            accountId: effectiveAccountId,
+            objective,
+            businessDescription,
+            targetDescription,
+            dailyBudgetMXN: Number(dailyBudgetMXN),
+            numVariants: Number(numVariants),
+          };
+
+    const res = await fetch('/api/meta-campaign', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      throw new Error(json.error || 'Ocurrió un error al generar la campaña.');
+    }
+    return json as CampaignResult;
+  }
+
   async function handleGenerate() {
     setLoading(true);
     setError(null);
     setResult(null);
+    setAutoSummary([]);
     try {
-      const payload =
-        mode === 'prompt'
-          ? { accountId: effectiveAccountId, prompt }
-          : {
-              accountId: effectiveAccountId,
-              objective,
-              businessDescription,
-              targetDescription,
-              dailyBudgetMXN: Number(dailyBudgetMXN),
-            };
-
-      const res = await fetch('/api/meta-campaign', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      const json = await res.json();
-      if (!res.ok) {
-        throw new Error(json.error || 'Ocurrió un error al generar la campaña.');
-      }
-      setResult(json as CampaignResult);
+      const generated = await runGenerateCampaign();
+      setResult(generated);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ocurrió un error inesperado.');
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleGenerateFull() {
+    if (!pageId.trim() || !destinationLink.trim()) {
+      setError('Falta el Page ID o el link de destino antes de generar todo de corrido.');
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    setResult(null);
+    setAutoSummary([]);
+    setAutoError(null);
+    try {
+      const generated = await runGenerateCampaign();
+      setResult(generated);
+      setLoading(false);
+
+      setAutoLoading(true);
+      const summary = await runAutoCreateAds(generated);
+      setAutoSummary(summary);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Ocurrió un error inesperado.');
+    } finally {
+      setLoading(false);
+      setAutoLoading(false);
+    }
+  }
+
+  // Auto-creación de los 3 anuncios usando imágenes de Drive.
+  const [autoLoading, setAutoLoading] = useState(false);
+  const [autoError, setAutoError] = useState<string | null>(null);
+  const [autoSummary, setAutoSummary] = useState<
+    Array<{ ok: boolean; variantIndex: number; imageName?: string; adId?: string; adsManagerUrl?: string; error?: string }>
+  >([]);
+
+  async function runAutoCreateAds(campaignResult: CampaignResult) {
+    const res = await fetch('/api/meta-campaign/auto-create-ads', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        accountId: effectiveAccountId,
+        adSetId: campaignResult.created.adSetId,
+        pageId: pageId.trim(),
+        destinationLink: destinationLink.trim(),
+        campaignName: campaignResult.brief.campaignName,
+        adCopyVariants: campaignResult.brief.adCopyVariants,
+        leadFormId: selectedLeadFormId || undefined,
+        campaignContext: mode === 'prompt' ? prompt : `${businessDescription}\n\nPúblico: ${targetDescription}`,
+      }),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || 'Ocurrió un error al crear los anuncios automáticamente.');
+    return json.summary as Array<{ ok: boolean; variantIndex: number; imageName?: string; adId?: string; adsManagerUrl?: string; error?: string }>;
+  }
+
+  async function handleAutoCreateAds() {
+    if (!result) return;
+    if (!pageId.trim() || !destinationLink.trim()) {
+      setAutoError('Falta el Page ID o el link de destino arriba.');
+      return;
+    }
+    setAutoLoading(true);
+    setAutoError(null);
+    setAutoSummary([]);
+    try {
+      const summary = await runAutoCreateAds(result);
+      setAutoSummary(summary);
+    } catch (err) {
+      setAutoError(err instanceof Error ? err.message : 'Ocurrió un error inesperado.');
+    } finally {
+      setAutoLoading(false);
     }
   }
 
@@ -285,15 +399,88 @@ export function MetaCampaignPanel() {
         )}
       </div>
 
-      <div>
+      <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-4">
+        <p className="mb-3 text-xs font-medium uppercase tracking-wider text-zinc-500">
+          Datos del anuncio (necesarios si vas a crear los anuncios, no solo la campaña)
+        </p>
+        <div className="grid gap-3 sm:grid-cols-4">
+          <div>
+            <label className="mb-1 block text-xs font-medium uppercase tracking-wider text-zinc-500"># de anuncios</label>
+            <input
+              type="number"
+              min={1}
+              max={10}
+              value={numVariants}
+              onChange={(e) => setNumVariants(e.target.value)}
+              className={inputClass}
+            />
+            <p className="mt-1 text-xs text-zinc-600">1-10. Cada uno usa un archivo distinto de Drive si hay suficientes.</p>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium uppercase tracking-wider text-zinc-500">Page ID de Facebook</label>
+            <input value={pageId} onChange={(e) => setPageId(e.target.value)} placeholder="123456789012345" className={inputClass} />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium uppercase tracking-wider text-zinc-500">Link de destino</label>
+            <input
+              value={destinationLink}
+              onChange={(e) => setDestinationLink(e.target.value)}
+              placeholder="https://tusitio.com/desarrollo"
+              className={inputClass}
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium uppercase tracking-wider text-zinc-500">
+              Formulario de Meta (Instant Form)
+            </label>
+            {leadForms.length === 0 ? (
+              <button
+                type="button"
+                onClick={handleLoadLeadForms}
+                disabled={loadingForms}
+                className="w-full rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-left text-sm text-zinc-400 hover:border-zinc-600 hover:text-zinc-200"
+              >
+                {loadingForms ? 'Cargando formularios…' : 'Cargar formularios de esta Página'}
+              </button>
+            ) : (
+              <select value={selectedLeadFormId} onChange={(e) => setSelectedLeadFormId(e.target.value)} className={inputClass}>
+                <option value="">Ninguno (usar link de destino)</option>
+                {leadForms.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.name} {f.status !== 'ACTIVE' ? `(${f.status})` : ''}
+                  </option>
+                ))}
+              </select>
+            )}
+            <p className="mt-1 text-xs text-zinc-600">
+              {leadForms.length > 0 ? `${leadForms.length} formulario(s) encontrados.` : 'Necesita el Page ID lleno arriba.'}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-3">
         <Button
           onClick={handleGenerate}
-          disabled={loading || !canSubmit}
+          disabled={loading || autoLoading || !canSubmit}
+          className="h-9 border border-zinc-700 bg-zinc-900 px-4 text-zinc-200 hover:bg-zinc-800"
+        >
+          {loading && !autoLoading ? 'Generando…' : 'Solo generar campaña'}
+        </Button>
+        <Button
+          onClick={handleGenerateFull}
+          disabled={loading || autoLoading || !canSubmit || !pageId.trim() || !destinationLink.trim()}
           className="h-9 bg-[#EFF767] px-4 text-zinc-950 hover:bg-[#EFF767]/90"
         >
-          {loading ? 'Generando y creando en Meta (pausada)…' : 'Generar y crear en Meta (pausada)'}
+          {loading || autoLoading
+            ? autoLoading
+              ? 'Creando anuncios (video/formulario automático)…'
+              : 'Generando campaña…'
+            : 'Generar todo de corrido (campaña + anuncios)'}
         </Button>
-        <p className="mt-2 text-xs text-zinc-500">
+      </div>
+      <div>
+        <p className="text-xs text-zinc-500">
           Se crea de verdad en la cuenta, pero <span className="font-medium text-zinc-300">siempre en pausa</span> — no gasta nada
           hasta que alguien la active manualmente en Ads Manager.
         </p>
@@ -336,24 +523,49 @@ export function MetaCampaignPanel() {
           </div>
 
           <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-6">
-            <p className="mb-3 text-sm font-semibold text-zinc-100">Completar el anuncio (imagen + copy)</p>
-            <div className="mb-4 grid gap-3 sm:grid-cols-2">
-              <div>
-                <label className="mb-1 block text-xs font-medium uppercase tracking-wider text-zinc-500">
-                  Page ID de Facebook
-                </label>
-                <input value={pageId} onChange={(e) => setPageId(e.target.value)} placeholder="123456789012345" className={inputClass} />
+            <p className="mb-1 text-sm font-semibold text-zinc-100">Crear los 3 anuncios automáticamente (Drive)</p>
+            <p className="mb-3 text-xs text-zinc-500">
+              Claude elige qué imagen de tu carpeta de Drive le queda mejor a cada variante, la descarga, y crea los 3 anuncios en un
+              solo paso. Necesitas el Page ID y el link de destino llenos abajo.
+            </p>
+            <Button
+              onClick={handleAutoCreateAds}
+              disabled={autoLoading}
+              className="h-9 bg-[#EFF767] px-4 text-zinc-950 hover:bg-[#EFF767]/90"
+            >
+              {autoLoading ? 'Eligiendo imágenes y creando anuncios…' : 'Crear los 3 anuncios automáticamente'}
+            </Button>
+
+            {autoError && <p className="mt-3 text-xs text-red-400">{autoError}</p>}
+
+            {autoSummary.length > 0 && (
+              <div className="mt-3 flex flex-col gap-2">
+                {autoSummary.map((item, i) => (
+                  <div key={i} className="flex items-center gap-2 text-xs">
+                    <span className="text-zinc-500">Variante {item.variantIndex + 1}:</span>
+                    {item.ok ? (
+                      <>
+                        <Badge variant="outline" className="border-emerald-500/30 bg-emerald-500/10 text-emerald-400">
+                          Creado con {item.imageName}
+                        </Badge>
+                        <a href={item.adsManagerUrl} target="_blank" rel="noopener noreferrer" className="text-[#EFF767] hover:underline">
+                          Ver →
+                        </a>
+                      </>
+                    ) : (
+                      <Badge variant="outline" className="border-red-500/30 bg-red-500/10 text-red-400">
+                        {item.error}
+                      </Badge>
+                    )}
+                  </div>
+                ))}
               </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium uppercase tracking-wider text-zinc-500">Link de destino</label>
-                <input
-                  value={destinationLink}
-                  onChange={(e) => setDestinationLink(e.target.value)}
-                  placeholder="https://tusitio.com/desarrollo"
-                  className={inputClass}
-                />
-              </div>
-            </div>
+            )}
+          </div>
+
+          <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-6">
+            <p className="mb-3 text-sm font-semibold text-zinc-100">O completar a mano (subir imagen/video por variante)</p>
+            <p className="mb-4 text-xs text-zinc-600">Usa el Page ID, link y formulario que llenaste arriba.</p>
 
             <div className="flex flex-col gap-4">
               {result.brief.adCopyVariants.map((variant, i) => {
@@ -372,17 +584,33 @@ export function MetaCampaignPanel() {
                       <input
                         type="file"
                         accept="image/*"
-                        onChange={(e) => setAdState(i, { imageFile: e.target.files?.[0] ?? null, error: null })}
+                        onChange={(e) => setAdState(i, { imageFile: e.target.files?.[0] ?? null, videoFile: null, error: null })}
+                        className="text-xs text-zinc-400 file:mr-2 file:rounded-md file:border file:border-zinc-700 file:bg-zinc-800 file:px-2 file:py-1 file:text-xs file:text-zinc-200"
+                      />
+                      <span className="text-xs text-zinc-600">o</span>
+                      <input
+                        type="file"
+                        accept="video/*"
+                        onChange={(e) => setAdState(i, { videoFile: e.target.files?.[0] ?? null, imageFile: null, error: null })}
                         className="text-xs text-zinc-400 file:mr-2 file:rounded-md file:border file:border-zinc-700 file:bg-zinc-800 file:px-2 file:py-1 file:text-xs file:text-zinc-200"
                       />
                       <Button
                         onClick={() => handleCreateAd(i, variant)}
-                        disabled={adState.loading || !adState.imageFile}
+                        disabled={adState.loading || (!adState.imageFile && !adState.videoFile)}
                         className="h-8 bg-zinc-100 px-3 text-xs text-zinc-950 hover:bg-zinc-300"
                       >
-                        {adState.loading ? 'Creando anuncio…' : 'Crear anuncio con esta variante'}
+                        {adState.loading
+                          ? adState.videoFile
+                            ? 'Subiendo y procesando video…'
+                            : 'Creando anuncio…'
+                          : 'Crear anuncio con esta variante'}
                       </Button>
                     </div>
+                    {adState.videoFile && (
+                      <p className="mt-1 text-xs text-zinc-600">
+                        Los videos pueden tardar hasta ~45s en procesarse en Meta — no cierres la pestaña mientras carga.
+                      </p>
+                    )}
 
                     {adState.error && <p className="mt-2 text-xs text-red-400">{adState.error}</p>}
                     {adState.result && (

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generateCampaignBrief, type CampaignObjective } from '@/lib/metaCampaignGenerator';
 import { createPausedCampaign } from '@/lib/metaCampaignCreate';
+import { logCampaignGenerated } from '@/lib/campaignHistoryStorage';
+import { buildAuditContextText } from '@/lib/campaignAuditContext';
 
 export const maxDuration = 60;
 
@@ -12,6 +14,8 @@ export async function POST(req: NextRequest) {
     const accountId: string | undefined = body?.accountId;
     const countryCode: string | undefined = body?.countryCode;
     const prompt: string | undefined = body?.prompt;
+    const numVariantsRaw = Number(body?.numVariants);
+    const numVariants = Number.isFinite(numVariantsRaw) && numVariantsRaw > 0 ? numVariantsRaw : undefined;
 
     if (!accountId || !accountId.startsWith('act_')) {
       return NextResponse.json({ error: 'accountId es requerido y debe tener el formato "act_1234567890".' }, { status: 400 });
@@ -22,11 +26,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Falta la variable de entorno META_ACCESS_TOKEN en el servidor.' }, { status: 500 });
     }
 
+    // Cada campaña nueva (manual o automática) nace informada por la
+    // última auditoría guardada de esta cuenta, si existe.
+    const auditContext = await buildAuditContextText(accountId);
+
     let brief;
 
     if (prompt?.trim()) {
       // Modo prompt libre: Claude infiere objetivo y presupuesto del texto.
-      brief = await generateCampaignBrief({ mode: 'freeform', prompt: prompt.trim(), countryCode });
+      brief = await generateCampaignBrief({ mode: 'freeform', prompt: prompt.trim(), countryCode, auditContext, numVariants });
     } else {
       // Modo estructurado: campos separados.
       const objective: string | undefined = body?.objective;
@@ -51,11 +59,18 @@ export async function POST(req: NextRequest) {
         targetDescription,
         dailyBudgetMXN: dailyBudgetMXN as number,
         countryCode,
+        auditContext,
+        numVariants,
       });
     }
 
     // 2. Se crea de verdad en Meta, SIEMPRE en PAUSED.
     const created = await createPausedCampaign(accountId, token, brief, brief.dailyBudgetMXN, countryCode);
+
+    // 3. Registro en el historial (no bloquea la respuesta si falla).
+    logCampaignGenerated(accountId, brief, created, 'manual').catch((err) =>
+      console.error('[meta-campaign] Error al guardar el historial:', err),
+    );
 
     return NextResponse.json({ brief, created });
   } catch (error) {

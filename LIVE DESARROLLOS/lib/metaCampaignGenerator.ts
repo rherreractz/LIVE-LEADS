@@ -1,8 +1,14 @@
 /**
  * Genera un brief de campaña de Meta Ads con Claude: nombre, objetivo,
- * presupuesto sugerido, targeting básico, y 3 variantes de copy para
+ * presupuesto sugerido, targeting básico, y N variantes de copy para
  * probar. El resultado se usa en metaCampaignCreate.ts para crear la
  * Campaña + Ad Set de verdad en Meta, en estado PAUSED.
+ *
+ * Usa TOOL CALLING de la API de Claude (no le pedimos "responde solo
+ * JSON" en texto libre) — la API garantiza que el objeto que regresa
+ * cumple el schema exacto, sin que nosotros tengamos que parsear ni
+ * reparar texto. Esto elimina de raíz los errores de "JSON inválido" que
+ * pasaban cuando el copy del usuario traía comillas, saltos de línea, etc.
  */
 
 export type CampaignObjective = 'leads' | 'ventas' | 'trafico' | 'reconocimiento' | 'interaccion';
@@ -15,11 +21,17 @@ export type CampaignBriefInput =
       targetDescription: string;
       dailyBudgetMXN: number;
       countryCode?: string;
+      /** Resumen de la última auditoría de Meta Ads de esta cuenta (ver lib/campaignAuditContext.ts). */
+      auditContext?: string;
+      /** Cuántas variantes de copy/anuncio generar. Default 3. */
+      numVariants?: number;
     }
   | {
       mode: 'freeform';
       prompt: string;
       countryCode?: string;
+      auditContext?: string;
+      numVariants?: number;
     };
 
 export interface AdCopyVariant {
@@ -42,49 +54,77 @@ export interface CampaignBrief {
   strategyNotes: string;
 }
 
-const STRUCTURED_OUTPUT_INSTRUCTIONS = `
-Devuelve EXCLUSIVAMENTE un objeto JSON (sin \`\`\`json, sin texto antes o después), con esta forma exacta:
+const AD_COPY_VARIANT_SCHEMA = {
+  type: 'object',
+  properties: {
+    headline: { type: 'string', description: 'Máximo 40 caracteres' },
+    primaryText: { type: 'string', description: 'Máximo 125 palabras' },
+    description: { type: 'string', description: 'Máximo 30 caracteres' },
+    cta: { type: 'string', description: "Texto de botón en español, ej. 'Más información'" },
+  },
+  required: ['headline', 'primaryText', 'description', 'cta'],
+};
 
-{
-  "campaignName": "<nombre corto y descriptivo de la campaña, en español>",
-  "adSetName": "<nombre corto del ad set, en español>",
-  "ageMin": <número entre 18 y 65>,
-  "ageMax": <número entre 18 y 65, mayor o igual a ageMin>,
-  "genders": "all"|"men"|"women",
-  "targetingSummary": "<descripción en español, 1-2 frases, de a quién le va a hablar esta campaña>",
-  "adCopyVariants": [
-    { "headline": "<máx 40 caracteres>", "primaryText": "<máx 125 palabras>", "description": "<máx 30 caracteres>", "cta": "<texto de botón en español, ej. 'Más información', 'Solicitar cotización'>" }
-    ... (exactamente 3 variantes, con ángulos distintos entre sí — no repitas la misma idea con otras palabras)
-  ],
-  "strategyNotes": "<2-3 frases en español explicando por qué esta estrategia tiene sentido para este negocio>"
+function baseSchemaProperties(numVariants: number) {
+  return {
+    campaignName: { type: 'string', description: 'Nombre corto y descriptivo, en español' },
+    adSetName: { type: 'string', description: 'Nombre corto del ad set, en español' },
+    ageMin: { type: 'integer', minimum: 18, maximum: 65 },
+    ageMax: { type: 'integer', minimum: 18, maximum: 65 },
+    genders: { type: 'string', enum: ['all', 'men', 'women'] },
+    targetingSummary: { type: 'string', description: '1-2 frases en español de a quién le habla la campaña' },
+    adCopyVariants: {
+      type: 'array',
+      items: AD_COPY_VARIANT_SCHEMA,
+      minItems: numVariants,
+      maxItems: numVariants,
+      description: `Exactamente ${numVariants} variante(s), cada una con un ángulo distinto — no repitas la misma idea con otras palabras`,
+    },
+    strategyNotes: { type: 'string', description: '2-3 frases en español explicando la estrategia' },
+  };
 }
 
-Reglas de formato JSON: comillas dobles siempre, sin comas colgantes, sin comentarios, JSON válido y completo. No uses saltos de línea literales dentro de un valor string; usa espacios.
-`;
+function buildToolSchema(isFreeform: boolean, numVariants: number) {
+  const base = baseSchemaProperties(numVariants);
 
-const FREEFORM_OUTPUT_INSTRUCTIONS = `
-El usuario te va a dar UN SOLO texto libre describiendo lo que quiere (puede incluir o no: objetivo, negocio, público, presupuesto). Interpreta ese texto e infiere lo que falte con criterio profesional.
+  if (!isFreeform) {
+    return {
+      type: 'object',
+      properties: base,
+      required: ['campaignName', 'adSetName', 'ageMin', 'ageMax', 'genders', 'targetingSummary', 'adCopyVariants', 'strategyNotes'],
+    };
+  }
 
-Devuelve EXCLUSIVAMENTE un objeto JSON (sin \`\`\`json, sin texto antes o después), con esta forma exacta:
-
-{
-  "objective": "leads"|"ventas"|"trafico"|"reconocimiento"|"interaccion",
-  "dailyBudgetMXN": <número; si el usuario no menciona presupuesto, infiere uno razonable para el objetivo (ej. 300-500 MXN/día como punto de partida conservador)>,
-  "campaignName": "<nombre corto y descriptivo de la campaña, en español>",
-  "adSetName": "<nombre corto del ad set, en español>",
-  "ageMin": <número entre 18 y 65>,
-  "ageMax": <número entre 18 y 65, mayor o igual a ageMin>,
-  "genders": "all"|"men"|"women",
-  "targetingSummary": "<descripción en español, 1-2 frases, de a quién le va a hablar esta campaña>",
-  "adCopyVariants": [
-    { "headline": "<máx 40 caracteres>", "primaryText": "<máx 125 palabras>", "description": "<máx 30 caracteres>", "cta": "<texto de botón en español, ej. 'Más información', 'Solicitar cotización'>" }
-    ... (exactamente 3 variantes, con ángulos distintos entre sí)
-  ],
-  "strategyNotes": "<2-3 frases en español explicando la estrategia Y qué información infirió que el usuario no dio explícitamente, para que lo pueda corregir si hace falta>"
+  return {
+    type: 'object',
+    properties: {
+      objective: { type: 'string', enum: ['leads', 'ventas', 'trafico', 'reconocimiento', 'interaccion'] },
+      dailyBudgetMXN: {
+        type: 'number',
+        description: 'Si el usuario no menciona presupuesto, infiere uno razonable (300-500 MXN/día como punto de partida conservador)',
+      },
+      ...base,
+      strategyNotes: {
+        type: 'string',
+        description: '2-3 frases en español explicando la estrategia Y qué información infirió que el usuario no dio explícitamente',
+      },
+    },
+    required: [
+      'objective',
+      'dailyBudgetMXN',
+      'campaignName',
+      'adSetName',
+      'ageMin',
+      'ageMax',
+      'genders',
+      'targetingSummary',
+      'adCopyVariants',
+      'strategyNotes',
+    ],
+  };
 }
 
-Reglas de formato JSON: comillas dobles siempre, sin comas colgantes, sin comentarios, JSON válido y completo. No uses saltos de línea literales dentro de un valor string; usa espacios.
-`;
+const TOOL_NAME = 'submit_campaign_brief';
 
 export async function generateCampaignBrief(input: CampaignBriefInput): Promise<CampaignBrief> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -94,20 +134,27 @@ export async function generateCampaignBrief(input: CampaignBriefInput): Promise<
 
   const model = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5';
   const isFreeform = input.mode === 'freeform';
+  const numVariants = input.numVariants && input.numVariants > 0 ? Math.min(input.numVariants, 10) : 3;
 
   const systemPrompt = `Eres un estratega senior de Meta Ads (Facebook + Instagram), especializado en generar briefs de campaña listos para lanzar. Trabajas para una agencia que atiende clientes reales — tu copy debe sonar profesional y persuasivo, no genérico.
 
-${isFreeform ? FREEFORM_OUTPUT_INSTRUCTIONS : STRUCTURED_OUTPUT_INSTRUCTIONS}`;
+Si el usuario te da un copy base o texto ya escrito, úsalo como punto de partida para las variantes (ajústalo ligeramente por variante), no lo ignores ni inventes uno completamente distinto.
+
+Si te dan el resultado de una auditoría reciente de la cuenta, úsalo activamente: prioriza corregir en esta campaña nueva los problemas de targeting/estructura que la auditoría haya detectado, y aprovecha los quick wins como inspiración de ángulo — no los ignores ni los repitas literal.
+
+Llama a la herramienta "${TOOL_NAME}" con el brief completo. Responde SIEMPRE llamando a esa herramienta, nunca con texto plano.`;
+
+  const auditSection = input.auditContext ? `\n\nContexto de la última auditoría de Meta Ads de esta cuenta:\n${input.auditContext}` : '';
 
   const userMessage = isFreeform
-    ? `Esto es lo que pidió el usuario, tal cual, en un solo texto:\n\n"""\n${input.prompt}\n"""\n\nPaís: ${input.countryCode || 'MX'}`
+    ? `Esto es lo que pidió el usuario, tal cual, en un solo texto:\n\n"""\n${input.prompt}\n"""\n\nPaís: ${input.countryCode || 'MX'}${auditSection}`
     : `Genera el brief para esta campaña:
 
 - Objetivo: ${input.objective}
 - Descripción del negocio/producto: ${input.businessDescription}
 - Público objetivo (descripción libre del cliente): ${input.targetDescription}
 - Presupuesto diario: $${input.dailyBudgetMXN} MXN
-- País: ${input.countryCode || 'MX'}`;
+- País: ${input.countryCode || 'MX'}${auditSection}`;
 
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -118,9 +165,17 @@ ${isFreeform ? FREEFORM_OUTPUT_INSTRUCTIONS : STRUCTURED_OUTPUT_INSTRUCTIONS}`;
     },
     body: JSON.stringify({
       model,
-      max_tokens: 4096,
+      max_tokens: 4096 + Math.max(0, numVariants - 3) * 1024,
       system: systemPrompt,
       messages: [{ role: 'user', content: userMessage }],
+      tools: [
+        {
+          name: TOOL_NAME,
+          description: 'Envía el brief de campaña completo, ya estructurado.',
+          input_schema: buildToolSchema(isFreeform, numVariants),
+        },
+      ],
+      tool_choice: { type: 'tool', name: TOOL_NAME },
     }),
   });
 
@@ -130,34 +185,23 @@ ${isFreeform ? FREEFORM_OUTPUT_INSTRUCTIONS : STRUCTURED_OUTPUT_INSTRUCTIONS}`;
   }
 
   const json = await res.json();
-  const textBlock = (json.content ?? []).find((block: any) => block.type === 'text');
-  if (!textBlock?.text) {
-    throw new Error('La respuesta de Claude no incluyó ningún bloque de texto.');
+
+  if (json.stop_reason === 'max_tokens') {
+    throw new Error('La respuesta de Claude se cortó por max_tokens antes de terminar la herramienta. Sube el valor o pide menos variantes.');
   }
 
-  const cleaned = textBlock.text
-    .trim()
-    .replace(/^```json\s*/i, '')
-    .replace(/^```\s*/i, '')
-    .replace(/```\s*$/i, '')
-    // Saltos de línea/tabs sueltos rompen strings de JSON si no vienen
-    // escapados — los volvemos espacio (seguro: entre llaves/comas el
-    // salto de línea es solo whitespace opcional).
-    .replace(/[\r\n\t]+/g, ' ')
-    .replace(/,(\s*[}\]])/g, '$1');
-
-  try {
-    if (isFreeform) {
-      return JSON.parse(cleaned) as CampaignBrief;
-    }
-    const parsed = JSON.parse(cleaned) as Omit<CampaignBrief, 'objective' | 'dailyBudgetMXN'>;
-    return { ...parsed, objective: input.objective, dailyBudgetMXN: input.dailyBudgetMXN };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    const positionMatch = message.match(/position (\d+)/);
-    const position = positionMatch ? Number(positionMatch[1]) : null;
-    const snippet = position != null ? cleaned.slice(Math.max(0, position - 150), position + 150) : cleaned.slice(0, 500);
-    console.error('[metaCampaignGenerator] JSON inválido. Fragmento cercano al error:', snippet);
-    throw new Error(`No se pudo interpretar el brief generado por Claude: ${message}`);
+  const toolUseBlock = (json.content ?? []).find((block: any) => block.type === 'tool_use' && block.name === TOOL_NAME);
+  if (!toolUseBlock?.input) {
+    console.error('[metaCampaignGenerator] Respuesta sin tool_use:', JSON.stringify(json.content ?? [], null, 2).slice(0, 800));
+    throw new Error('Claude no devolvió el brief a través de la herramienta esperada.');
   }
+
+  // toolUseBlock.input YA es un objeto JS parseado por la API — no hace
+  // falta JSON.parse ni reparación de texto.
+  if (isFreeform) {
+    return toolUseBlock.input as CampaignBrief;
+  }
+
+  const parsed = toolUseBlock.input as Omit<CampaignBrief, 'objective' | 'dailyBudgetMXN'>;
+  return { ...parsed, objective: input.objective, dailyBudgetMXN: input.dailyBudgetMXN };
 }

@@ -91,17 +91,27 @@ async function graphPostJSON(path: string, params: Record<string, unknown>, toke
   return data;
 }
 
+export type ImageSource =
+  | { kind: 'file'; file: File }
+  | { kind: 'buffer'; buffer: Buffer; filename: string; mimeType: string };
+
 export interface CreateAdInput {
   accountId: string;
   token: string;
   adSetId: string;
   pageId: string;
-  imageFile: File;
+  image: ImageSource;
   headline: string;
   primaryText: string;
   destinationLink: string;
   ctaText: string; // texto libre en español (de la variante generada) o la selección del usuario
   adName: string;
+  /**
+   * Si se da, el anuncio abre el Instant Form de Meta en vez de mandar a
+   * destinationLink (típico para objetivo "leads"). destinationLink igual
+   * se manda como respaldo/fallback en algunos placements.
+   */
+  leadFormId?: string;
 }
 
 export interface CreateAdResult {
@@ -110,12 +120,40 @@ export interface CreateAdResult {
   adsManagerUrl: string;
 }
 
+function buildLinkData(input: {
+  headline: string;
+  primaryText: string;
+  destinationLink: string;
+  ctaText: string;
+  leadFormId?: string;
+  imageHash?: string;
+  videoId?: string;
+}) {
+  const ctaType = input.leadFormId ? 'SIGN_UP' : mapCtaToMetaEnum(input.ctaText);
+  const ctaValue: Record<string, unknown> = input.leadFormId
+    ? { lead_gen_form_id: input.leadFormId }
+    : { link: input.destinationLink };
+
+  return {
+    message: input.primaryText,
+    link: input.destinationLink,
+    name: input.headline,
+    ...(input.imageHash ? { image_hash: input.imageHash } : {}),
+    call_to_action: { type: ctaType, value: ctaValue },
+  };
+}
+
 export async function createPausedAdWithImage(input: CreateAdInput): Promise<CreateAdResult> {
   const apiVersion = process.env.META_API_VERSION || 'v22.0';
 
   // 1. Subir la imagen a la galería de anuncios de la cuenta.
   const imageForm = new FormData();
-  imageForm.set('source', input.imageFile, input.imageFile.name);
+  if (input.image.kind === 'file') {
+    imageForm.set('source', input.image.file, input.image.file.name);
+  } else {
+    const blob = new Blob([input.image.buffer], { type: input.image.mimeType });
+    imageForm.set('source', blob, input.image.filename);
+  }
 
   const uploadResult = await graphPostForm(`${input.accountId}/adimages`, imageForm, input.token, apiVersion);
   if (isGraphError(uploadResult)) {
@@ -138,13 +176,7 @@ export async function createPausedAdWithImage(input: CreateAdInput): Promise<Cre
       name: `${input.adName} — creativo`,
       object_story_spec: {
         page_id: input.pageId,
-        link_data: {
-          message: input.primaryText,
-          link: input.destinationLink,
-          name: input.headline,
-          image_hash: imageHash,
-          call_to_action: { type: mapCtaToMetaEnum(input.ctaText), value: { link: input.destinationLink } },
-        },
+        link_data: buildLinkData({ ...input, imageHash }),
       },
     },
     input.token,
@@ -172,6 +204,147 @@ export async function createPausedAdWithImage(input: CreateAdInput): Promise<Cre
 
   if (isGraphError(ad)) {
     throw new Error(`El creativo se creó, pero no se pudo crear el anuncio: ${ad._error.message}`);
+  }
+
+  return {
+    adId: ad.id,
+    creativeId,
+    adsManagerUrl: `https://adsmanager.facebook.com/adsmanager/manage/ads?act=${input.accountId.replace('act_', '')}&selected_ad_ids=${ad.id}`,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Video
+// ---------------------------------------------------------------------------
+
+export type VideoSource =
+  | { kind: 'file'; file: File }
+  | { kind: 'buffer'; buffer: Buffer; filename: string; mimeType: string };
+
+export interface CreateVideoAdInput {
+  accountId: string;
+  token: string;
+  adSetId: string;
+  pageId: string;
+  video: VideoSource;
+  headline: string;
+  primaryText: string;
+  destinationLink: string;
+  ctaText: string;
+  adName: string;
+  leadFormId?: string;
+  /** Cuánto esperar máximo (ms) a que Meta termine de procesar el video antes de rendirse. Default 45s. */
+  maxWaitMs?: number;
+}
+
+/**
+ * Sube el video, espera a que Meta lo termine de procesar (es asíncrono —
+ * puede tardar de segundos a un par de minutos según duración/peso), y
+ * arma el Ad final. Si no termina de procesar dentro de maxWaitMs, avisa
+ * con un error claro en vez de fallar en silencio — el video sigue
+ * procesándose del lado de Meta aunque nuestra función se rinda, así que
+ * reintentar más tarde con el mismo video_id (no implementado todavía,
+ * ver nota abajo) funcionaría.
+ */
+export async function createPausedAdWithVideo(input: CreateVideoAdInput): Promise<CreateAdResult> {
+  const apiVersion = process.env.META_API_VERSION || 'v22.0';
+  const maxWaitMs = input.maxWaitMs ?? 45000;
+
+  // 1. Subir el video.
+  const videoForm = new FormData();
+  if (input.video.kind === 'file') {
+    videoForm.set('source', input.video.file, input.video.file.name);
+  } else {
+    const blob = new Blob([input.video.buffer], { type: input.video.mimeType });
+    videoForm.set('source', blob, input.video.filename);
+  }
+
+  const uploadResult = await graphPostForm(`${input.accountId}/advideos`, videoForm, input.token, apiVersion);
+  if (isGraphError(uploadResult)) {
+    throw new Error(`No se pudo subir el video a Meta: ${uploadResult._error.message}`);
+  }
+
+  const videoId: string | undefined = uploadResult.id;
+  if (!videoId) {
+    throw new Error('Meta no devolvió un ID de video tras la subida.');
+  }
+
+  // 2. Esperar a que termine de procesar (polling).
+  const start = Date.now();
+  let thumbnailUrl: string | undefined;
+  let ready = false;
+
+  while (Date.now() - start < maxWaitMs) {
+    const statusUrl = `${GRAPH_BASE}/${apiVersion}/${videoId}?fields=status,thumbnails&access_token=${input.token}`;
+    const res = await fetch(statusUrl);
+    const data = await res.json();
+
+    const videoStatus = data?.status?.video_status;
+    if (videoStatus === 'ready') {
+      ready = true;
+      thumbnailUrl = data?.thumbnails?.data?.[0]?.uri;
+      break;
+    }
+    if (videoStatus === 'error') {
+      throw new Error('Meta reportó un error al procesar el video (formato/tamaño no soportado).');
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+  }
+
+  if (!ready) {
+    throw new Error(
+      `El video se subió (ID ${videoId}) pero Meta todavía lo está procesando después de ${Math.round(maxWaitMs / 1000)}s. Espera unos minutos y vuelve a intentar crear el anuncio — videos largos/pesados pueden tardar más.`,
+    );
+  }
+
+  // 3. Crear el ad creative de video.
+  const ctaType = input.leadFormId ? 'SIGN_UP' : mapCtaToMetaEnum(input.ctaText);
+  const ctaValue: Record<string, unknown> = input.leadFormId
+    ? { lead_gen_form_id: input.leadFormId }
+    : { link: input.destinationLink };
+
+  const creative = await graphPostJSON(
+    `${input.accountId}/adcreatives`,
+    {
+      name: `${input.adName} — creativo`,
+      object_story_spec: {
+        page_id: input.pageId,
+        video_data: {
+          video_id: videoId,
+          title: input.headline,
+          message: input.primaryText,
+          link_description: input.destinationLink,
+          call_to_action: { type: ctaType, value: ctaValue },
+          ...(thumbnailUrl ? { image_url: thumbnailUrl } : {}),
+        },
+      },
+    },
+    input.token,
+    apiVersion,
+  );
+
+  if (isGraphError(creative)) {
+    throw new Error(`No se pudo crear el creativo de video: ${creative._error.message}`);
+  }
+
+  const creativeId: string = creative.id;
+
+  // 4. Crear el Ad final, PAUSED.
+  const ad = await graphPostJSON(
+    `${input.accountId}/ads`,
+    {
+      name: input.adName,
+      adset_id: input.adSetId,
+      status: 'PAUSED',
+      creative: { creative_id: creativeId },
+    },
+    input.token,
+    apiVersion,
+  );
+
+  if (isGraphError(ad)) {
+    throw new Error(`El creativo de video se creó, pero no se pudo crear el anuncio: ${ad._error.message}`);
   }
 
   return {

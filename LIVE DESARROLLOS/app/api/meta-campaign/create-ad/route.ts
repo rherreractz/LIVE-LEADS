@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createPausedAdWithImage } from '@/lib/metaCreative';
+import { createPausedAdWithImage, createPausedAdWithVideo } from '@/lib/metaCreative';
+import { findLeadFormByName } from '@/lib/metaLeadForms';
 
 export const maxDuration = 60;
 
@@ -16,6 +17,9 @@ export async function POST(req: NextRequest) {
     const ctaText = form.get('ctaText') as string | null;
     const adName = form.get('adName') as string | null;
     const imageFile = form.get('image') as File | null;
+    const videoFile = form.get('video') as File | null;
+    const leadFormName = (form.get('leadFormName') as string | null) || undefined;
+    const leadFormIdDirect = (form.get('leadFormId') as string | null) || undefined;
 
     if (!accountId || !accountId.startsWith('act_')) {
       return NextResponse.json({ error: 'accountId es requerido y debe tener el formato "act_1234567890".' }, { status: 400 });
@@ -25,8 +29,10 @@ export async function POST(req: NextRequest) {
     if (!headline || !primaryText || !destinationLink || !ctaText || !adName) {
       return NextResponse.json({ error: 'Faltan campos de texto del anuncio.' }, { status: 400 });
     }
-    if (!imageFile || imageFile.size === 0) {
-      return NextResponse.json({ error: 'Falta la imagen del anuncio.' }, { status: 400 });
+    const hasImage = imageFile && imageFile.size > 0;
+    const hasVideo = videoFile && videoFile.size > 0;
+    if (!hasImage && !hasVideo) {
+      return NextResponse.json({ error: 'Falta la imagen o el video del anuncio.' }, { status: 400 });
     }
 
     const token = process.env.META_ACCESS_TOKEN;
@@ -34,18 +40,45 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Falta la variable de entorno META_ACCESS_TOKEN en el servidor.' }, { status: 500 });
     }
 
-    const result = await createPausedAdWithImage({
-      accountId,
-      token,
-      adSetId,
-      pageId,
-      imageFile,
-      headline,
-      primaryText,
-      destinationLink,
-      ctaText,
-      adName,
-    });
+    // Si viene el Form ID directo (elegido del desplegable), lo usamos tal
+    // cual — más confiable que buscar por nombre. leadFormName queda como
+    // respaldo para llamadas que todavía no mandan el ID (ej. integraciones viejas).
+    let leadFormId: string | undefined = leadFormIdDirect;
+    if (!leadFormId && leadFormName) {
+      const found = await findLeadFormByName(pageId, token, leadFormName);
+      if (!found) {
+        return NextResponse.json({ error: `No se encontró un formulario llamado "${leadFormName}" en la página ${pageId}.` }, { status: 400 });
+      }
+      leadFormId = found.id;
+    }
+
+    const result = hasVideo
+      ? await createPausedAdWithVideo({
+          accountId,
+          token,
+          adSetId,
+          pageId,
+          video: { kind: 'file', file: videoFile as File },
+          headline,
+          primaryText,
+          destinationLink,
+          ctaText,
+          adName,
+          leadFormId,
+        })
+      : await createPausedAdWithImage({
+          accountId,
+          token,
+          adSetId,
+          pageId,
+          image: { kind: 'file', file: imageFile as File },
+          headline,
+          primaryText,
+          destinationLink,
+          ctaText,
+          adName,
+          leadFormId,
+        });
 
     return NextResponse.json(result);
   } catch (error) {
