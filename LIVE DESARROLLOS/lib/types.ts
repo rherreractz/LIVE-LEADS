@@ -40,4 +40,10 @@ export interface ProcessedLead extends RawLead {
   propietarioCrm?: string;
   /** Cualquier propiedad extra de HubSpot pedida vía HUBSPOT_EXTRA_PROPERTIES */
   crmExtra?: Record<string, string>;
+  /** Estado del lead en GoHighLevel (nombre del Stage), ej. "Registro", "Contacto" */
+  estadoGHL?: string;
+  /** Pipeline del lead en GoHighLevel */
+  pipelineGHL?: string;
+  /** Persona encargada del lead en GoHighLevel */
+  personaEncargadaGHL?: string;
 }
