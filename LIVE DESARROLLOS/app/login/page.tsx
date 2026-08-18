@@ -26,8 +26,9 @@ function LoginForm() {
         const json = await res.json().catch(() => ({}));
         throw new Error(json.error || 'Contraseña incorrecta.');
       }
-      const from = searchParams.get('from') || '/';
-      router.push(from);
+      const from = searchParams.get('from');
+      const destination = !from || from === '/' ? '/meta-ads' : from;
+      router.push(destination);
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ocurrió un error inesperado.');

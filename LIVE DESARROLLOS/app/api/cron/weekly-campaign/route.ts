@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { generateCampaignBrief } from '@/lib/metaCampaignGenerator';
 import { createPausedCampaign } from '@/lib/metaCampaignCreate';
 import { logCampaignGenerated } from '@/lib/campaignHistoryStorage';
-import { buildAuditContextText } from '@/lib/campaignAuditContext';
+import { buildCampaignContext } from '@/lib/campaignAuditContext';
 
 export const maxDuration = 60;
 
@@ -23,7 +23,8 @@ export const maxDuration = 60;
  *     "accountId": "act_1586604569106474",
  *     "businessDescription": "Desarrollo residencial Live Neo en Cancún, departamentos desde $2.5 MDP",
  *     "targetDescription": "Inversionistas y compradores de segunda vivienda, 30-55 años, interesados en bienes raíces en el Caribe mexicano",
- *     "dailyBudgetMXN": 300
+ *     "dailyBudgetMXN": 300,
+ *     "pageId": "100041452645865"
  *   }
  * ]'
  *
@@ -39,6 +40,8 @@ interface WeeklyAccountConfig {
   targetDescription: string;
   dailyBudgetMXN?: number;
   countryCode?: string;
+  /** Requerido si el objetivo termina siendo "leads" (u otros que necesitan promoted_object). */
+  pageId?: string;
 }
 
 function getWeeklyAccounts(): WeeklyAccountConfig[] {
@@ -54,7 +57,7 @@ function getWeeklyAccounts(): WeeklyAccountConfig[] {
 }
 
 async function buildPromptForAccount(accountConfig: WeeklyAccountConfig): Promise<{ prompt: string; auditContext: string }> {
-  const auditContext = await buildAuditContextText(accountConfig.accountId);
+  const auditContext = await buildCampaignContext(accountConfig.accountId);
   const budgetLine = accountConfig.dailyBudgetMXN ? `Presupuesto diario: $${accountConfig.dailyBudgetMXN} MXN.` : '';
 
   const prompt = `Genera una campaña de generación de leads.
@@ -97,6 +100,7 @@ export async function GET(req: NextRequest) {
         brief,
         brief.dailyBudgetMXN,
         accountConfig.countryCode,
+        accountConfig.pageId,
       );
       await logCampaignGenerated(accountConfig.accountId, brief, created, 'weekly-cron');
       return { accountId: accountConfig.accountId, campaignId: created.campaignId, campaignName: brief.campaignName };

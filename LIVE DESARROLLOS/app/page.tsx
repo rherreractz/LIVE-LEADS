@@ -1,8 +1,16 @@
-import Link from 'next/link';
 import { getLeads } from '@/lib/googleSheets';
 import { getHubspotStatusMap } from '@/lib/hubspot';
-import { processLeads, mergeHubspotStatus, getHubspotOnlyRawLeads } from '@/lib/leadUtils';
-import { DashboardShell } from '@/components/dashboard/dashboard-shell';
+import { getGhlStatusMap } from '@/lib/ghl';
+import {
+  processLeads,
+  mergeHubspotStatus,
+  mergeGhlStatus,
+  summarizeLeadQualityByFuente,
+  summarizeLeadQualityByCampana,
+  buildLeadQualityHistoryChartData,
+} from '@/lib/leadUtils';
+import { saveLeadQualitySummary, getLeadQualityHistory } from '@/lib/leadQualityStorage';
+import { DashboardTabs } from '@/components/dashboard/dashboard-tabs';
 
 // Revalida la página cada 60s (coordinado con el caché de getLeads() y
 // getHubspotStatusMap()).
@@ -10,17 +18,56 @@ export const revalidate = 60;
 
 export default async function DashboardPage() {
   // 1. Extracción segura de datos (Server Component -> nunca se envían
-  //    credenciales de Google/HubSpot al cliente). Ambas fuentes en paralelo.
-  const [rawLeads, hubspotMap] = await Promise.all([getLeads(), getHubspotStatusMap()]);
+  //    credenciales de Google/HubSpot/GHL al cliente). Las 3 fuentes en
+  //    paralelo. GHL puede tardar (cuenta con ~4,600 oportunidades,
+  //    paginado) — si falla o tarda demasiado, no tumba el resto del
+  //    dashboard, solo la columna "Estado GHL" queda sin dato.
+  const [rawLeads, hubspotMap, ghlMap] = await Promise.all([
+    getLeads(),
+    getHubspotStatusMap(),
+    getGhlStatusMap().catch((err) => {
+      console.error('[page] Error al leer GoHighLevel, se omite por esta vez:', err);
+      return { byEmail: new Map() };
+    }),
+  ]);
 
-  // 2. Contactos de HubSpot que NO tienen lead correspondiente en el Sheet
-  //    (mismo teléfono/correo) se agregan como leads nuevos.
-  const hubspotOnlyRawLeads = getHubspotOnlyRawLeads(rawLeads, hubspotMap);
+  // 2. Limpieza + deduplicación (server-side) SOLO sobre los leads reales
+  //    del Sheet (ya no se agregan contactos que solo existen en HubSpot
+  //    como leads nuevos — se decidió que no deben aparecer en la tabla,
+  //    HubSpot se usa únicamente para enriquecer los leads que sí vienen
+  //    del Sheet). Luego cruce con el estado del CRM (HubSpot primero,
+  //    GHL después — GHL cruza solo por correo).
+  const leadsWithHubspot = mergeHubspotStatus(processLeads(rawLeads), hubspotMap);
+  const leads = mergeGhlStatus(leadsWithHubspot, ghlMap);
 
-  // 3. Limpieza + deduplicación (server-side) sobre el set combinado,
-  //    luego cruce con el estado del CRM. El resultado ya procesado se
-  //    pasa al Client Component, que maneja los filtros interactivos.
-  const leads = mergeHubspotStatus(processLeads([...rawLeads, ...hubspotOnlyRawLeads]), hubspotMap);
+  // 3. Snapshot de calidad de leads (por Fuente y por Campaña, según el
+  //    semáforo) — se guarda para que la generación de campañas lo use
+  //    como contexto real, sin tener que recalcular todo esto de nuevo.
+  //    Se espera (await) en vez de fire-and-forget: en un entorno
+  //    serverless, una promesa sin esperar puede cortarse antes de
+  //    terminar cuando la respuesta ya se mandó — el costo extra aquí es
+  //    mínimo (un par de llamadas al Sheet), no la parte pesada de GHL.
+  try {
+    await saveLeadQualitySummary({
+      generatedAt: new Date().toISOString(),
+      byFuente: summarizeLeadQualityByFuente(leads),
+      byCampana: summarizeLeadQualityByCampana(leads),
+    });
+  } catch (err) {
+    console.error('[page] Error al guardar calidad de leads:', err);
+  }
+
+  // 4. Historial completo (un punto por día) para la gráfica de línea del
+  //    tiempo — ya incluye el snapshot de hoy que se acaba de guardar
+  //    arriba. Si falla, la gráfica simplemente se muestra vacía, no
+  //    tumba el resto del dashboard.
+  let leadQualityHistoryChart: { data: Record<string, string | number | null>[]; fuentes: string[] } = { data: [], fuentes: [] };
+  try {
+    const history = await getLeadQualityHistory();
+    leadQualityHistoryChart = buildLeadQualityHistoryChartData(history);
+  } catch (err) {
+    console.error('[page] Error al leer historial de calidad de leads:', err);
+  }
 
   const lastUpdated = new Date().toLocaleString('es-MX', {
     dateStyle: 'long',
@@ -35,14 +82,11 @@ export default async function DashboardPage() {
           <h1 className="text-xl font-semibold tracking-tight text-zinc-50">Panel de Reportes</h1>
         </div>
         <div className="flex items-center gap-4">
-          <Link href="/meta-ads" className="text-xs text-zinc-500 hover:text-zinc-300">
-            Auditoría Meta Ads →
-          </Link>
           <p className="text-xs text-zinc-500">Última actualización: {lastUpdated}</p>
         </div>
       </header>
 
-      <DashboardShell leads={leads} initialHubspotLimit={hubspotMap.limit} />
+      <DashboardTabs leads={leads} initialHubspotLimit={hubspotMap.limit} leadQualityHistory={leadQualityHistoryChart} />
     </div>
   );
 }

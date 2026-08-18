@@ -29,6 +29,8 @@ En esta cuenta, cada archivo suele nombrarse según el DESARROLLO específico al
 
 Si no hay ninguna pista de desarrollo en el contexto, o ningún archivo coincide con el nombre mencionado, entonces sí reparte por criterio general (que cada variante tenga un archivo distinto).
 
+Sobre el FORMATO: algunos nombres de archivo incluyen "SQ" (cuadrado, 1:1) o "LG" (alargado/vertical). Cuando haya ambas versiones disponibles para el mismo desarrollo, PREFIERE "SQ" — el formato cuadrado es el que Meta recomienda por default y se adapta mejor a la mayoría de las ubicaciones (Feed, Instagram, etc.) sin recortarse mal. Usa "LG" solo si "SQ" no está disponible para ese desarrollo.
+
 Devuelve EXCLUSIVAMENTE un objeto JSON (sin \`\`\`json, sin texto antes o después) con esta forma:
 { "0": "<id del archivo elegido para la variante 1>", "1": "<id para la variante 2>", "2": "<id para la variante 3>" }`;
 

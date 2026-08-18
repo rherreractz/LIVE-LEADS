@@ -1,4 +1,5 @@
 import type { CampaignBrief, CampaignObjective } from './metaCampaignGenerator';
+import { resolveCities, resolveInterests } from './metaTargetingSearch';
 
 /**
  * Crea la estructura real de Campaña + Ad Set en Meta (Marketing API),
@@ -78,6 +79,13 @@ export interface CreatePausedCampaignResult {
   campaignId: string;
   adSetId: string;
   adsManagerUrl: string;
+  /** Qué ciudades/intereses de los sugeridos por Claude sí se lograron resolver y aplicar de verdad — para mostrárselo al usuario, no queda "invisible". */
+  appliedTargeting: {
+    cities: string[];
+    interests: string[];
+    unresolvedCities: string[];
+    unresolvedInterests: string[];
+  };
 }
 
 export async function createPausedCampaign(
@@ -86,6 +94,7 @@ export async function createPausedCampaign(
   brief: CampaignBrief,
   dailyBudgetMXN: number,
   countryCode = 'MX',
+  pageId?: string,
 ): Promise<CreatePausedCampaignResult> {
   const apiVersion = process.env.META_API_VERSION || 'v22.0';
   const mapping = OBJECTIVE_MAP[brief.objective];
@@ -115,12 +124,37 @@ export async function createPausedCampaign(
   const campaignId: string = campaign.id;
 
   // 2. Ad Set, también PAUSED, con el targeting y presupuesto del brief.
-  // Targeting deliberadamente amplio (solo país + edad + género) — sin
-  // intereses específicos, ya que targetear por interés requiere buscar
-  // IDs válidos contra la API de Meta; queda como mejora futura. Esto
-  // además está alineado con lo que Meta recomienda hoy (Advantage+
-  // Audience / targeting amplio suele rendir mejor que restringir de más).
+  // Base amplia (país + edad + género) que se acota con ciudades/intereses
+  // reales más abajo, SOLO cuando Claude los sugirió y se lograron
+  // resolver contra la API de Meta — nunca se inventa un ID.
   const genders = GENDER_MAP[brief.genders];
+
+  // Segmentación detallada real (ciudades + intereses) — se resuelven
+  // contra la API de Meta a partir de lo que sugirió Claude en el brief.
+  // Si algo no se encuentra, simplemente se omite (no bloquea la campaña).
+  const [resolvedCities, resolvedInterests] = await Promise.all([
+    brief.suggestedCities?.length ? resolveCities(brief.suggestedCities, token, apiVersion) : Promise.resolve([]),
+    brief.suggestedInterestKeywords?.length ? resolveInterests(brief.suggestedInterestKeywords, token, apiVersion) : Promise.resolve([]),
+  ]);
+
+  const unresolvedCities = (brief.suggestedCities ?? []).filter(
+    (q) => !resolvedCities.some((c) => c.name.toLowerCase().includes(q.toLowerCase())),
+  );
+  const unresolvedInterests = (brief.suggestedInterestKeywords ?? []).filter(
+    (q) => !resolvedInterests.some((i) => i.name.toLowerCase().includes(q.toLowerCase())),
+  );
+
+  // Meta exige un "promoted_object" en el Ad Set para varios objetivos —
+  // sin esto, la creación del Ad final falla con "Invalid parameter"
+  // (subcode 1885154). Para leads/reconocimiento/interacción, el objeto
+  // promocionado es la Página; para tráfico/ventas no hace falta (van por
+  // el link del creativo).
+  const needsPromotedObject = brief.objective === 'leads' || brief.objective === 'reconocimiento' || brief.objective === 'interaccion';
+  if (needsPromotedObject && !pageId) {
+    throw new Error(
+      `El objetivo "${brief.objective}" requiere un Page ID (promoted_object) para crear el Ad Set. Llena el campo "Page ID de Facebook" antes de generar.`,
+    );
+  }
 
   const adSet = await graphPost(
     `${accountId}/adsets`,
@@ -132,11 +166,29 @@ export async function createPausedCampaign(
       billing_event: mapping.billing_event,
       optimization_goal: mapping.optimization_goal,
       bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
+      ...(needsPromotedObject ? { promoted_object: { page_id: pageId } } : {}),
+      // Requerido por Meta para poder usar Formulario Instantáneo al crear
+      // el Ad después. Estuvo desactivado temporalmente por un bug de Meta
+      // (subcode 1815089, "Condiciones del servicio no aceptadas" pese a
+      // que sí estaban aceptadas) — confirmado resuelto el 14 de agosto de
+      // 2026 con una prueba directa vía API (Ad Set creado sin error). Si
+      // el bug regresara, comenta la línea de abajo como respaldo.
+      ...(brief.objective === 'leads' ? { destination_type: 'ON_AD' } : {}),
       targeting: {
-        geo_locations: { countries: [countryCode] },
+        geo_locations:
+          resolvedCities.length > 0
+            ? // Si se resolvieron ciudades, se targetea SOLO esas ciudades
+              // (sin "countries" — Meta trata país + ciudades como "cualquiera
+              // de los dos", lo que seguiría siendo todo el país y anularía
+              // el propósito de acotar por ciudad).
+              { cities: resolvedCities.map((c) => ({ key: c.key, radius: 25, distance_unit: 'kilometer' })) }
+            : { countries: [countryCode] },
         age_min: brief.ageMin,
         age_max: brief.ageMax,
         ...(genders ? { genders } : {}),
+        ...(resolvedInterests.length > 0
+          ? { flexible_spec: [{ interests: resolvedInterests.map((i) => ({ id: i.id, name: i.name })) }] }
+          : {}),
         // Requerido por Meta desde 2026: hay que decidir explícitamente si
         // se activa Advantage+ Audience (Meta puede expandir el targeting
         // más allá de lo que definiste, si detecta que rinde mejor). En 0
@@ -163,5 +215,11 @@ export async function createPausedCampaign(
     campaignId,
     adSetId,
     adsManagerUrl: `https://adsmanager.facebook.com/adsmanager/manage/campaigns?act=${accountId.replace('act_', '')}&selected_campaign_ids=${campaignId}`,
+    appliedTargeting: {
+      cities: resolvedCities.map((c) => c.name),
+      interests: resolvedInterests.map((i) => i.name),
+      unresolvedCities,
+      unresolvedInterests,
+    },
   };
 }

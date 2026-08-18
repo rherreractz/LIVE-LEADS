@@ -9,9 +9,11 @@ import type { ProcessedLead } from '@/lib/types';
 export function DashboardTabs({
   leads,
   initialHubspotLimit,
+  leadQualityHistory,
 }: {
   leads: ProcessedLead[];
   initialHubspotLimit: number;
+  leadQualityHistory: { data: Record<string, string | number | null>[]; fuentes: string[] };
 }) {
   return (
     <Tabs defaultValue="leads" className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -40,7 +42,7 @@ export function DashboardTabs({
 
       {/* La pestaña de Leads mantiene su layout original (tabla + gráficas). */}
       <TabsContent value="leads" className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <DashboardShell leads={leads} initialHubspotLimit={initialHubspotLimit} />
+        <DashboardShell leads={leads} initialHubspotLimit={initialHubspotLimit} leadQualityHistory={leadQualityHistory} />
       </TabsContent>
 
       <TabsContent value="meta-ads" className="min-h-0 flex-1 overflow-auto">

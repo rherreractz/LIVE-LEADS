@@ -1,5 +1,6 @@
 import type { RawLead, ProcessedLead, MotivoCategoria, LeadStatus } from './types';
 import type { HubspotStatusMap, HubspotContactInfo } from './hubspot';
+import type { GhlStatusMap } from './ghl';
 
 const SMALL_WORDS = new Set([
   'a', 'de', 'del', 'la', 'el', 'los', 'las', 'en', 'y', 'o', 'un', 'una', 'al',
@@ -245,6 +246,33 @@ export function mergeHubspotStatus(leads: ProcessedLead[], hubspotMap: HubspotSt
   return result;
 }
 
+/**
+ * Cruza los leads con el estado de GoHighLevel — SOLO por correo (a
+ * diferencia de HubSpot, que también intenta por teléfono), porque así lo
+ * pidió el equipo explícitamente para esta integración.
+ */
+export function mergeGhlStatus(leads: ProcessedLead[], ghlMap: GhlStatusMap): ProcessedLead[] {
+  let matched = 0;
+
+  const result = leads.map((lead) => {
+    const emailKey = normalizeEmail(lead.Correo);
+    const match = emailKey ? ghlMap.byEmail.get(emailKey) : undefined;
+
+    if (match) matched += 1;
+
+    return {
+      ...lead,
+      estadoGHL: match?.estadoGHL || 'Sin dato',
+      pipelineGHL: match?.pipelineGHL || 'Sin dato',
+      personaEncargadaGHL: match?.personaEncargadaGHL || 'Sin asignar',
+    };
+  });
+
+  console.log(`[ghl] Cruce Sheet <-> GoHighLevel: ${matched} de ${leads.length} leads encontraron su oportunidad en GHL (de ${ghlMap.byEmail.size} correos indexados).`);
+
+  return result;
+}
+
 // ---------------------------------------------------------------------------
 // Agregaciones para alimentar las gráficas de Recharts
 // ---------------------------------------------------------------------------
@@ -266,6 +294,36 @@ export function groupByDate(leads: ProcessedLead[]) {
         month: 'short',
       }),
       total,
+    }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/**
+ * Igual que groupByDate, pero separa el conteo de cada día por semáforo de
+ * etapa (Verde/Amarillo/Rojo/Sin clasificar) — para la gráfica de líneas
+ * con filtro de color.
+ */
+export function groupByDateColor(leads: ProcessedLead[]) {
+  const counts = new Map<string, { Verde: number; Amarillo: number; Rojo: number; SinClasificar: number }>();
+
+  leads.forEach((lead) => {
+    if (!lead.parsedDate) return;
+    const key = formatDateKey(lead.parsedDate);
+    if (!counts.has(key)) counts.set(key, { Verde: 0, Amarillo: 0, Rojo: 0, SinClasificar: 0 });
+    const bucket = counts.get(key)!;
+
+    const color = getSemaforoColor(lead);
+    if (color === 'Verde') bucket.Verde += 1;
+    else if (color === 'Amarillo') bucket.Amarillo += 1;
+    else if (color === 'Rojo') bucket.Rojo += 1;
+    else bucket.SinClasificar += 1;
+  });
+
+  return Array.from(counts.entries())
+    .map(([date, values]) => ({
+      date,
+      label: new Date(`${date}T00:00:00`).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' }),
+      ...values,
     }))
     .sort((a, b) => a.date.localeCompare(b.date));
 }
@@ -297,6 +355,95 @@ export function groupByMotivo(leads: ProcessedLead[]) {
 }
 
 // ---------------------------------------------------------------------------
+// Semáforo de etapas — rojo (descartado) / amarillo (registro) / verde (avanzando)
+// ---------------------------------------------------------------------------
+
+/**
+ * Clasifica una etapa de GoHighLevel por su NÚMERO inicial (ej. "10 -
+ * Registro" -> 10), no por el texto — porque en GHL el número es el
+ * contrato real: 10 = recién registrado, 20-99 = avanzando por el pipeline
+ * normal, 100+ = cualquier motivo de descarte (Inválido, No responde, No
+ * da cita, No acude a cita, No hay negocio, Cancela reserva, etc.). Así,
+ * si el equipo agrega una etapa nueva en el rango 100+, se clasifica sola
+ * como Rojo sin que haya que tocar código.
+ */
+export function classifyGhlStageNumber(stageName: string): 'Rojo' | 'Amarillo' | 'Verde' | null {
+  const match = stageName.trim().match(/^(\d+)/);
+  if (!match) return null;
+  const num = parseInt(match[1], 10);
+  if (num >= 100) return 'Rojo';
+  if (num === 10) return 'Amarillo';
+  if (num > 10 && num < 100) return 'Verde';
+  return null;
+}
+
+/**
+ * Clasifica el texto de una etapa/estado en un color de semáforo, por
+ * COINCIDENCIA DE PALABRA CLAVE (no exacta) — porque los valores reales que
+ * llegan de HubSpot/Sheet varían bastante ("No califica", "Primer contacto
+ * sin respuesta", etc.) y casi nunca coinciden letra por letra con una
+ * lista fija. El orden de los checks importa: los más específicos van
+ * primero, para que por ejemplo "no da cita" no termine cayendo en la regla
+ * genérica de "cita", o "primer contacto sin respuesta" no caiga en la de
+ * "primer contacto" a secas.
+ */
+function classifyEtapaColor(etapaRaw: string): 'Rojo' | 'Amarillo' | 'Verde' | null {
+  const v = etapaRaw.trim().toLowerCase();
+  if (!v) return null;
+
+  // --- Rojo: descartado / no avanza ---
+  if (v.includes('no califica')) return 'Rojo';
+  if (v.includes('inválido') || v.includes('invalido')) return 'Rojo';
+  if (v.includes('no responde')) return 'Rojo';
+  if (v.includes('no da cita')) return 'Rojo';
+
+  // --- Amarillo: todavía pendiente / sin resolver ---
+  if (v.includes('sin respuesta')) return 'Amarillo'; // ej. "Primer contacto sin respuesta"
+  if (v.includes('registro')) return 'Amarillo';
+
+  // --- Verde: ya hubo avance/interacción real ---
+  if (v.includes('contacto')) return 'Verde'; // "Contacto", "Primer contacto" (sin "sin respuesta", ya se descartó arriba)
+  if (v.includes('cita')) return 'Verde'; // "Cita" (ya se descartó "no da cita" arriba)
+  if (v.includes('visita')) return 'Verde';
+  if (v.includes('informes')) return 'Verde';
+  if (v.includes('negocio')) return 'Verde';
+
+  return null;
+}
+
+/**
+ * Punto único de verdad para el semáforo de un lead: si tiene match en
+ * GoHighLevel, se clasifica por el NÚMERO de su etapa GHL (más confiable —
+ * ver classifyGhlStageNumber). Si no hay dato de GHL para ese lead, cae al
+ * método anterior por palabra clave sobre la Etapa de HubSpot/Sheet.
+ */
+export function getSemaforoColor(lead: ProcessedLead): 'Rojo' | 'Amarillo' | 'Verde' | null {
+  if (lead.estadoGHL) {
+    const fromGhl = classifyGhlStageNumber(lead.estadoGHL);
+    if (fromGhl) return fromGhl;
+  }
+  return classifyEtapaColor(lead.etapaLeadCrm || lead.Etapa || '');
+}
+
+/** Agrupa los leads por semáforo de etapa (prioriza GHL, cae a HubSpot/Sheet si no hay match). */
+export function groupByEtapaColor(leads: ProcessedLead[]) {
+  const counts = { Verde: 0, Amarillo: 0, Rojo: 0, 'Sin clasificar': 0 };
+
+  leads.forEach((lead) => {
+    const color = getSemaforoColor(lead);
+    if (color) counts[color] += 1;
+    else counts['Sin clasificar'] += 1;
+  });
+
+  return [
+    { name: 'Verde (avanzando)', value: counts.Verde, colorKey: 'green' as const },
+    { name: 'Amarillo (registro)', value: counts.Amarillo, colorKey: 'yellow' as const },
+    { name: 'Rojo (descartado)', value: counts.Rojo, colorKey: 'red' as const },
+    { name: 'Sin clasificar', value: counts['Sin clasificar'], colorKey: 'gray' as const },
+  ].filter((entry) => entry.value > 0);
+}
+
+// ---------------------------------------------------------------------------
 // Filtros interactivos para el dashboard
 // ---------------------------------------------------------------------------
 
@@ -314,6 +461,8 @@ export interface LeadFilters {
   proveedor: string;
   /** 'all' o el valor exacto de la columna Etapa */
   etapa: string;
+  /** Ventana rápida de tiempo, independiente del filtro de mes específico. */
+  periodo: 'todos' | 'semana' | 'mes' | 'año';
 }
 
 export const DEFAULT_LEAD_FILTERS: LeadFilters = {
@@ -324,6 +473,7 @@ export const DEFAULT_LEAD_FILTERS: LeadFilters = {
   fuente: 'all',
   proveedor: 'all',
   etapa: 'all',
+  periodo: 'todos',
 };
 
 /** Helper genérico: valores únicos no vacíos de un campo de texto del lead, ordenados alfabéticamente. */
@@ -379,38 +529,6 @@ export function getUniqueMonths(leads: ProcessedLead[]): { value: string; label:
     .sort((a, b) => b.value.localeCompare(a.value));
 }
 
-/**
- * Búsqueda libre por texto: compara contra nombre, correo, teléfono,
- * campaña, comentarios y los campos resueltos de HubSpot (etapa, estado,
- * propietario). Coincidencia por substring, sin distinguir mayúsculas.
- */
-export function searchLeads(leads: ProcessedLead[], query: string): ProcessedLead[] {
-  const q = query.trim().toLowerCase();
-  if (!q) return leads;
-
-  return leads.filter((lead) => {
-    const haystack = [
-      lead.Nombre,
-      lead.Correo,
-      lead.Telefono,
-      lead.Campana,
-      lead.Comentarios,
-      lead.Equipo,
-      lead.Fuente,
-      lead.Proveedor,
-      lead.Etapa,
-      lead.estadoLeadCrm,
-      lead.etapaLeadCrm,
-      lead.propietarioCrm,
-    ]
-      .filter(Boolean)
-      .join(' ')
-      .toLowerCase();
-
-    return haystack.includes(q);
-  });
-}
-
 /** Aplica todos los filtros activos sobre el arreglo de leads procesados. */
 export function filterLeads(leads: ProcessedLead[], filters: LeadFilters): ProcessedLead[] {
   return leads.filter((lead) => {
@@ -426,6 +544,98 @@ export function filterLeads(leads: ProcessedLead[], filters: LeadFilters): Proce
       if (lead.parsedDate.toISOString().slice(0, 7) !== filters.month) return false;
     }
 
+    if (filters.periodo !== 'todos') {
+      if (!lead.parsedDate) return false;
+      const days = filters.periodo === 'semana' ? 7 : filters.periodo === 'mes' ? 30 : 365;
+      const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+      if (lead.parsedDate.getTime() < cutoff) return false;
+    }
+
     return true;
   });
+}
+
+// ---------------------------------------------------------------------------
+// Calidad histórica de leads — insumo para que la IA genere campañas nuevas
+// informada por qué canales/campañas han dado leads reales de mejor calidad
+// (no solo la auditoría técnica de la cuenta de Meta).
+// ---------------------------------------------------------------------------
+
+export interface LeadQualityGroup {
+  key: string;
+  total: number;
+  verde: number;
+  amarillo: number;
+  rojo: number;
+  sinClasificar: number;
+  /** % de leads en Verde (avanzando) sobre el total del grupo, 0-100. */
+  verdePct: number;
+}
+
+/** Tamaño mínimo de muestra para que un grupo sea representativo — evita que una Fuente con 2 leads (1 de ellos bueno) parezca "100% verde". */
+const MIN_SAMPLE_SIZE = 5;
+
+function groupLeadQuality(leads: ProcessedLead[], keyFn: (lead: ProcessedLead) => string): LeadQualityGroup[] {
+  const groups = new Map<string, { total: number; verde: number; amarillo: number; rojo: number; sinClasificar: number }>();
+
+  leads.forEach((lead) => {
+    const key = keyFn(lead) || 'Sin dato';
+    if (!groups.has(key)) groups.set(key, { total: 0, verde: 0, amarillo: 0, rojo: 0, sinClasificar: 0 });
+    const g = groups.get(key)!;
+    g.total += 1;
+
+    const color = getSemaforoColor(lead);
+    if (color === 'Verde') g.verde += 1;
+    else if (color === 'Amarillo') g.amarillo += 1;
+    else if (color === 'Rojo') g.rojo += 1;
+    else g.sinClasificar += 1;
+  });
+
+  return Array.from(groups.entries())
+    .map(([key, g]) => ({ key, ...g, verdePct: g.total > 0 ? Math.round((g.verde / g.total) * 100) : 0 }))
+    .filter((g) => g.total >= MIN_SAMPLE_SIZE)
+    .sort((a, b) => b.verdePct - a.verdePct);
+}
+
+/** Calidad de leads agrupada por Fuente (fb/ig/an/HubSpot/etc.) — cuál canal da los leads que más avanzan. */
+export function summarizeLeadQualityByFuente(leads: ProcessedLead[]): LeadQualityGroup[] {
+  return groupLeadQuality(leads, (lead) => lead.Fuente?.trim() ?? '');
+}
+
+/** Calidad de leads agrupada por Campaña — cuáles campañas anteriores dieron leads que más avanzaron. */
+export function summarizeLeadQualityByCampana(leads: ProcessedLead[]): LeadQualityGroup[] {
+  return groupLeadQuality(leads, (lead) => lead.Campana?.trim() ?? '');
+}
+
+/**
+ * Transforma el historial guardado (un LeadQualityGroup[] por día, ver
+ * lib/leadQualityStorage.ts) al formato "ancho" que necesita la gráfica
+ * de líneas (LeadQualityHistoryChart en lead-charts.tsx): un objeto por
+ * día, con una propiedad por Fuente.
+ *
+ * También regresa la lista de nombres de Fuente presentes en TODO el
+ * histórico (no solo el día más reciente), para que la gráfica sepa
+ * cuántas líneas dibujar — una Fuente que ya no aparece en los últimos
+ * días pero sí en días anteriores igual debe verse en su tramo histórico.
+ */
+export function buildLeadQualityHistoryChartData(
+  history: { dateKey: string; byFuente: LeadQualityGroup[] }[],
+): { data: Record<string, string | number | null>[]; fuentes: string[] } {
+  const allFuentes = new Set<string>();
+  history.forEach((point) => point.byFuente.forEach((g) => allFuentes.add(g.key)));
+
+  const fuentes = Array.from(allFuentes).sort();
+
+  const data = history.map((point) => {
+    const row: Record<string, string | number | null> = {
+      label: new Date(`${point.dateKey}T00:00:00`).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' }),
+    };
+    fuentes.forEach((fuente) => {
+      const match = point.byFuente.find((g) => g.key === fuente);
+      row[fuente] = match ? match.verdePct : null; // null = sin muestra suficiente ese día, la línea se conecta (connectNulls) en vez de romperse
+    });
+    return row;
+  });
+
+  return { data, fuentes };
 }

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { generateCampaignBrief, type CampaignObjective } from '@/lib/metaCampaignGenerator';
 import { createPausedCampaign } from '@/lib/metaCampaignCreate';
 import { logCampaignGenerated } from '@/lib/campaignHistoryStorage';
-import { buildAuditContextText } from '@/lib/campaignAuditContext';
+import { buildCampaignContext } from '@/lib/campaignAuditContext';
 
 export const maxDuration = 60;
 
@@ -14,6 +14,7 @@ export async function POST(req: NextRequest) {
     const accountId: string | undefined = body?.accountId;
     const countryCode: string | undefined = body?.countryCode;
     const prompt: string | undefined = body?.prompt;
+    const pageId: string | undefined = body?.pageId;
     const numVariantsRaw = Number(body?.numVariants);
     const numVariants = Number.isFinite(numVariantsRaw) && numVariantsRaw > 0 ? numVariantsRaw : undefined;
 
@@ -28,7 +29,7 @@ export async function POST(req: NextRequest) {
 
     // Cada campaña nueva (manual o automática) nace informada por la
     // última auditoría guardada de esta cuenta, si existe.
-    const auditContext = await buildAuditContextText(accountId);
+    const auditContext = await buildCampaignContext(accountId);
 
     let brief;
 
@@ -65,7 +66,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 2. Se crea de verdad en Meta, SIEMPRE en PAUSED.
-    const created = await createPausedCampaign(accountId, token, brief, brief.dailyBudgetMXN, countryCode);
+    const created = await createPausedCampaign(accountId, token, brief, brief.dailyBudgetMXN, countryCode, pageId);
 
     // 3. Registro en el historial (no bloquea la respuesta si falla).
     logCampaignGenerated(accountId, brief, created, 'manual').catch((err) =>

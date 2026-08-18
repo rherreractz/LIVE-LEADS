@@ -16,7 +16,10 @@ export async function POST(req: NextRequest) {
   const res = NextResponse.json({ ok: true });
   res.cookies.set('panel_auth', password, {
     httpOnly: true,
-    secure: true,
+    // 'Secure' solo debe ir en producción (HTTPS) — en localhost (http) el
+    // navegador puede rechazar guardar la cookie si va marcada Secure, lo
+    // que hace que el login "funcione" pero nunca te deje pasar.
+    secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
     path: '/',
     maxAge: 60 * 60 * 24 * 30, // 30 días

@@ -50,6 +50,10 @@ export interface CampaignBrief {
   ageMax: number;
   genders: 'all' | 'men' | 'women';
   targetingSummary: string;
+  /** Ciudades sugeridas para segmentación detallada, en texto (ej. "Cancún", "Ciudad de México") — se resuelven a IDs reales de Meta en metaCampaignCreate.ts. Vacío = solo país, sin restricción de ciudad. */
+  suggestedCities: string[];
+  /** Palabras clave de intereses sugeridas (ej. "bienes raíces", "inversión inmobiliaria") — se resuelven a IDs reales de Meta en metaCampaignCreate.ts. Vacío = sin segmentación detallada por interés. */
+  suggestedInterestKeywords: string[];
   adCopyVariants: AdCopyVariant[];
   strategyNotes: string;
 }
@@ -73,6 +77,20 @@ function baseSchemaProperties(numVariants: number) {
     ageMax: { type: 'integer', minimum: 18, maximum: 65 },
     genders: { type: 'string', enum: ['all', 'men', 'women'] },
     targetingSummary: { type: 'string', description: '1-2 frases en español de a quién le habla la campaña' },
+    suggestedCities: {
+      type: 'array',
+      items: { type: 'string' },
+      maxItems: 5,
+      description:
+        'Ciudades para segmentar, SOLO si el usuario las menciona explícitamente o el negocio claramente es local a una ciudad específica (ej. "Cancún" para un desarrollo inmobiliario ahí). Nombres de ciudad en texto simple, sin país (ej. "Cancún", no "Cancún, México"). Arreglo vacío si no aplica restringir por ciudad — no inventes ciudades si no hay pista clara.',
+    },
+    suggestedInterestKeywords: {
+      type: 'array',
+      items: { type: 'string' },
+      maxItems: 5,
+      description:
+        'Palabras clave de intereses para segmentación detallada, relevantes al negocio y público (ej. "bienes raíces", "inversión inmobiliaria", "viajes de lujo"). 2-4 palabras clave razonables casi siempre ayudan — solo déjalo vacío si el negocio es demasiado genérico para tener intereses claros.',
+    },
     adCopyVariants: {
       type: 'array',
       items: AD_COPY_VARIANT_SCHEMA,
@@ -91,7 +109,18 @@ function buildToolSchema(isFreeform: boolean, numVariants: number) {
     return {
       type: 'object',
       properties: base,
-      required: ['campaignName', 'adSetName', 'ageMin', 'ageMax', 'genders', 'targetingSummary', 'adCopyVariants', 'strategyNotes'],
+      required: [
+        'campaignName',
+        'adSetName',
+        'ageMin',
+        'ageMax',
+        'genders',
+        'targetingSummary',
+        'suggestedCities',
+        'suggestedInterestKeywords',
+        'adCopyVariants',
+        'strategyNotes',
+      ],
     };
   }
 
@@ -118,6 +147,8 @@ function buildToolSchema(isFreeform: boolean, numVariants: number) {
       'ageMax',
       'genders',
       'targetingSummary',
+      'suggestedCities',
+      'suggestedInterestKeywords',
       'adCopyVariants',
       'strategyNotes',
     ],
@@ -140,7 +171,13 @@ export async function generateCampaignBrief(input: CampaignBriefInput): Promise<
 
 Si el usuario te da un copy base o texto ya escrito, úsalo como punto de partida para las variantes (ajústalo ligeramente por variante), no lo ignores ni inventes uno completamente distinto.
 
-Si te dan el resultado de una auditoría reciente de la cuenta, úsalo activamente: prioriza corregir en esta campaña nueva los problemas de targeting/estructura que la auditoría haya detectado, y aprovecha los quick wins como inspiración de ángulo — no los ignores ni los repitas literal.
+Si te dan contexto adicional de la cuenta, viene en dos partes distintas, úsalas activamente y de forma diferenciada:
+
+1. Auditoría técnica de Meta Ads: prioriza corregir en esta campaña nueva los problemas de targeting/estructura que haya detectado, y aprovecha los quick wins como inspiración de ángulo — no los ignores ni los repitas literal.
+
+2. Calidad real de los leads (histórica, medida por si de verdad avanzaron o se descartaron — no solo cuántos se registraron): si algún canal o campaña anterior muestra baja calidad (% bajo de leads que avanzaron), considera ajustar el ángulo del copy o el targeting para no repetir el mismo patrón; si alguno muestra alta calidad, puedes tomarlo como referencia de qué está funcionando. Menciona en strategyNotes qué de esta calidad histórica tomaste en cuenta, si aplica.
+
+Sobre segmentación detallada (ciudades e intereses): si el usuario menciona ciudades o intereses específicos en su instrucción, respétalos exactamente en suggestedCities/suggestedInterestKeywords — esto tiene prioridad sobre cualquier otro criterio. Si no los menciona pero el negocio tiene una ubicación/interés obvio (ej. un desarrollo inmobiliario en una ciudad específica), sugiere algo razonable de todas formas — no dejes esto vacío solo por default, la segmentación amplia sin ningún detalle es la excepción, no la regla.
 
 Llama a la herramienta "${TOOL_NAME}" con el brief completo. Responde SIEMPRE llamando a esa herramienta, nunca con texto plano.`;
 

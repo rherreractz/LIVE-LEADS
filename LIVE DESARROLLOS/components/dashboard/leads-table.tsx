@@ -1,8 +1,36 @@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { formatLeadDate } from '@/lib/leadUtils';
+import { formatLeadDate, classifyGhlStageNumber } from '@/lib/leadUtils';
 import type { ProcessedLead } from '@/lib/types';
+
+/**
+ * Nombres completos de las abreviaturas de Fuente, solo para mostrar — el
+ * valor real (usado para elegir el color en fuentePillClassName) sigue
+ * siendo el original ('fb', 'ig', 'an'), no se toca.
+ *
+ * 'an' = Audience Network (la red de apps/sitios externos donde Meta
+ * también coloca anuncios, junto a Facebook e Instagram) — si no es
+ * correcto, avisa y se corrige.
+ */
+const FUENTE_FULL_NAME: Record<string, string> = {
+  fb: 'Facebook',
+  ig: 'Instagram',
+  an: 'Audience Network',
+};
+
+function fuenteDisplayName(fuente: string): string {
+  return FUENTE_FULL_NAME[fuente.toLowerCase()] ?? fuente;
+}
+
+/** Clases del badge de "Estado GHL" — SOLO por el número de la etapa de GHL, gris si no hay dato real (nunca cae al color de la Etapa de HubSpot/Sheet, para no confundir). */
+function ghlPillClassName(estadoGHL?: string): string {
+  const color = estadoGHL ? classifyGhlStageNumber(estadoGHL) : null;
+  if (color === 'Verde') return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400';
+  if (color === 'Amarillo') return 'border-yellow-500/30 bg-yellow-500/10 text-yellow-400';
+  if (color === 'Rojo') return 'border-red-500/30 bg-red-500/10 text-red-400';
+  return 'border-zinc-700 bg-transparent text-zinc-400';
+}
 
 /**
  * Colorea cualquier texto de estado/etapa como píldora, según palabras
@@ -90,22 +118,22 @@ export function LeadsTable({ leads }: { leads: ProcessedLead[] }) {
   return (
     <ScrollArea className="h-full">
       <Table>
-        <TableHeader>
+        <TableHeader className="sticky top-0 z-10 bg-zinc-900">
           <TableRow className="border-zinc-800 hover:bg-transparent">
-            <TableHead className="text-zinc-500">Fecha</TableHead>
-            <TableHead className="text-zinc-500">Nombre</TableHead>
-            <TableHead className="text-zinc-500">Etapa</TableHead>
-            <TableHead className="text-zinc-500">Estado del lead</TableHead>
-            <TableHead className="text-zinc-500">Persona encargada</TableHead>
-            <TableHead className="text-zinc-500">Fuente</TableHead>
-            <TableHead className="text-zinc-500">Contacto</TableHead>
-            <TableHead className="text-zinc-500">Campaña</TableHead>
-            <TableHead className="text-zinc-500">Equipo encargado</TableHead>
-            <TableHead className="text-zinc-500">Proveedor</TableHead>
-            <TableHead className="text-zinc-500">Presupuesto</TableHead>
-            <TableHead className="text-zinc-500">Motivo</TableHead>
-            <TableHead className="text-zinc-500">Comentarios</TableHead>
-            <TableHead className="text-right text-zinc-500">Status</TableHead>
+            <TableHead className="text-zinc-500">FECHA</TableHead>
+            <TableHead className="text-zinc-500">NOMBRE</TableHead>
+            <TableHead className="text-zinc-500">ESTADO</TableHead>
+            <TableHead className="text-zinc-500">ESTADO GHL</TableHead>
+            <TableHead className="text-zinc-500">PERSONA ENCARGADA</TableHead>
+            <TableHead className="text-zinc-500">FUENTE</TableHead>
+            <TableHead className="text-zinc-500">CONTACTO</TableHead>
+            <TableHead className="text-zinc-500">CAMPAÑA</TableHead>
+            <TableHead className="text-zinc-500">EQUIPO ENCARGADO</TableHead>
+            <TableHead className="text-zinc-500">PROVEEDOR</TableHead>
+            <TableHead className="text-zinc-500">PRESUPUESTO</TableHead>
+            <TableHead className="text-zinc-500">MOTIVO</TableHead>
+            <TableHead className="text-zinc-500">COMENTARIOS</TableHead>
+            <TableHead className="text-right text-zinc-500">STATUS</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -132,21 +160,28 @@ export function LeadsTable({ leads }: { leads: ProcessedLead[] }) {
                   )}
                 </TableCell>
                 <TableCell className="text-zinc-500">
-                  {lead.estadoLeadCrm && lead.estadoLeadCrm !== 'Sin dato' ? (
-                    <Badge variant="outline" className={statusPillClassName(lead.estadoLeadCrm)}>
-                      {lead.estadoLeadCrm}
+                  {lead.estadoGHL ? (
+                    <Badge variant="outline" className={ghlPillClassName(lead.estadoGHL)}>
+                      {lead.estadoGHL}
                     </Badge>
                   ) : (
                     '—'
                   )}
                 </TableCell>
                 <TableCell className="text-zinc-500">
-                  {lead.propietarioCrm && lead.propietarioCrm !== 'Sin asignar' ? lead.propietarioCrm : '—'}
+                  {(() => {
+                    // HubSpot primero; si no hay dato ahí, cae a GHL — un
+                    // lead no debería tener dueño en los dos CRMs a la vez,
+                    // así que uno de los dos casi siempre va a estar vacío.
+                    if (lead.propietarioCrm && lead.propietarioCrm !== 'Sin asignar') return lead.propietarioCrm;
+                    if (lead.personaEncargadaGHL && lead.personaEncargadaGHL !== 'Sin asignar') return lead.personaEncargadaGHL;
+                    return '—';
+                  })()}
                 </TableCell>
                 <TableCell className="text-zinc-500">
                   {lead.Fuente ? (
                     <Badge variant="outline" className={fuentePillClassName(lead.Fuente)}>
-                      {lead.Fuente}
+                      {fuenteDisplayName(lead.Fuente)}
                     </Badge>
                   ) : (
                     '—'

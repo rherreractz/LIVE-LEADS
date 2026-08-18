@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+@import "react-grid-layout/css/styles.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -126,4 +127,28 @@
   html {
     @apply font-sans;
     }
+}
+
+/* Overrides de react-grid-layout para que combine con el tema oscuro del
+   panel (los colores default de la librería están pensados para fondo
+   claro). */
+.react-grid-item.react-grid-placeholder {
+  background: #eff767;
+  opacity: 0.15;
+  border-radius: 0.75rem;
+}
+.react-grid-item > .react-resizable-handle::after {
+  border-right-color: rgba(228, 228, 231, 0.6);
+  border-bottom-color: rgba(228, 228, 231, 0.6);
+}
+.dashboard-drag-handle {
+  cursor: move;
+}
+/* Resplandor blanco-azulado mientras se arrastra o redimensiona una card. */
+.react-grid-item.react-draggable-dragging,
+.react-grid-item.resizing {
+  box-shadow:
+    0 0 0 2px rgba(224, 242, 254, 0.9),
+    0 0 22px 5px rgba(125, 211, 252, 0.5);
+  border-radius: 0.75rem;
 }

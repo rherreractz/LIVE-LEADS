@@ -1,6 +1,6 @@
 import { getLeads } from '@/lib/googleSheets';
 import { getHubspotStatusMap } from '@/lib/hubspot';
-import { processLeads, mergeHubspotStatus, getHubspotOnlyRawLeads } from '@/lib/leadUtils';
+import { processLeads, mergeHubspotStatus } from '@/lib/leadUtils';
 import { DashboardTabs } from '@/components/dashboard/dashboard-tabs';
 
 // Revalida la página cada 60s (coordinado con el caché de getLeads() y
@@ -12,14 +12,12 @@ export default async function DashboardPage() {
   //    credenciales de Google/HubSpot al cliente). Ambas fuentes en paralelo.
   const [rawLeads, hubspotMap] = await Promise.all([getLeads(), getHubspotStatusMap()]);
 
-  // 2. Contactos de HubSpot que NO tienen lead correspondiente en el Sheet
-  //    (mismo teléfono/correo) se agregan como leads nuevos.
-  const hubspotOnlyRawLeads = getHubspotOnlyRawLeads(rawLeads, hubspotMap);
-
-  // 3. Limpieza + deduplicación (server-side) sobre el set combinado,
-  //    luego cruce con el estado del CRM. El resultado ya procesado se
-  //    pasa al Client Component, que maneja los filtros interactivos.
-  const leads = mergeHubspotStatus(processLeads([...rawLeads, ...hubspotOnlyRawLeads]), hubspotMap);
+  // 2. Limpieza + deduplicación (server-side) solo sobre los leads del
+  //    Sheet (los contactos que existen SOLO en HubSpot ya no se agregan
+  //    como leads nuevos), luego cruce con el estado del CRM. El resultado
+  //    ya procesado se pasa al Client Component, que maneja los filtros
+  //    interactivos.
+  const leads = mergeHubspotStatus(processLeads(rawLeads), hubspotMap);
 
   const lastUpdated = new Date().toLocaleString('es-MX', {
     dateStyle: 'long',

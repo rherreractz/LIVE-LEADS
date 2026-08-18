@@ -52,6 +52,12 @@ interface CampaignResult {
     campaignId: string;
     adSetId: string;
     adsManagerUrl: string;
+    appliedTargeting?: {
+      cities: string[];
+      interests: string[];
+      unresolvedCities: string[];
+      unresolvedInterests: string[];
+    };
   };
 }
 
@@ -175,7 +181,7 @@ export function MetaCampaignPanel() {
   async function runGenerateCampaign(): Promise<CampaignResult> {
     const payload =
       mode === 'prompt'
-        ? { accountId: effectiveAccountId, prompt, numVariants: Number(numVariants) }
+        ? { accountId: effectiveAccountId, prompt, numVariants: Number(numVariants), pageId: pageId.trim() || undefined }
         : {
             accountId: effectiveAccountId,
             objective,
@@ -183,6 +189,7 @@ export function MetaCampaignPanel() {
             targetDescription,
             dailyBudgetMXN: Number(dailyBudgetMXN),
             numVariants: Number(numVariants),
+            pageId: pageId.trim() || undefined,
           };
 
     const res = await fetch('/api/meta-campaign', {
@@ -434,14 +441,25 @@ export function MetaCampaignPanel() {
               Formulario de Meta (Instant Form)
             </label>
             {leadForms.length === 0 ? (
-              <button
-                type="button"
-                onClick={handleLoadLeadForms}
-                disabled={loadingForms}
-                className="w-full rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-left text-sm text-zinc-400 hover:border-zinc-600 hover:text-zinc-200"
-              >
-                {loadingForms ? 'Cargando formularios…' : 'Cargar formularios de esta Página'}
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={handleLoadLeadForms}
+                  disabled={loadingForms}
+                  className="w-full rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-left text-sm text-zinc-400 hover:border-zinc-600 hover:text-zinc-200"
+                >
+                  {loadingForms ? 'Cargando formularios…' : 'Cargar formularios de esta Página'}
+                </button>
+                <p className="mt-1 text-xs text-zinc-600">
+                  ¿No funciona (falta permiso pages_manage_ads en revisión)? Pega el Form ID a mano:
+                </p>
+                <input
+                  value={selectedLeadFormId}
+                  onChange={(e) => setSelectedLeadFormId(e.target.value)}
+                  placeholder="ID del formulario (desde la Biblioteca de formularios de tu Página)"
+                  className={`${inputClass} mt-1`}
+                />
+              </>
             ) : (
               <select value={selectedLeadFormId} onChange={(e) => setSelectedLeadFormId(e.target.value)} className={inputClass}>
                 <option value="">Ninguno (usar link de destino)</option>
@@ -453,7 +471,7 @@ export function MetaCampaignPanel() {
               </select>
             )}
             <p className="mt-1 text-xs text-zinc-600">
-              {leadForms.length > 0 ? `${leadForms.length} formulario(s) encontrados.` : 'Necesita el Page ID lleno arriba.'}
+              {leadForms.length > 0 ? `${leadForms.length} formulario(s) encontrados.` : ''}
             </p>
           </div>
         </div>
@@ -520,6 +538,41 @@ export function MetaCampaignPanel() {
               Edad {result.brief.ageMin}-{result.brief.ageMax} · Género:{' '}
               {result.brief.genders === 'all' ? 'Todos' : result.brief.genders === 'men' ? 'Hombres' : 'Mujeres'}
             </p>
+
+            {/* Segmentación detallada REAL aplicada en Meta — no solo lo que Claude sugirió, sino lo que de verdad se resolvió a un ID válido y quedó en el Ad Set. */}
+            <div className="mt-3 border-t border-zinc-800 pt-3">
+              <p className="mb-1 text-xs font-medium text-zinc-400">Segmentación detallada</p>
+              {result.created.appliedTargeting ? (
+                <>
+                  {result.created.appliedTargeting.cities.length > 0 ? (
+                    <p className="text-xs text-zinc-300">
+                      <span className="text-zinc-500">Ciudades:</span> {result.created.appliedTargeting.cities.join(', ')}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-zinc-500">Ciudades: ninguna (targeting por país completo)</p>
+                  )}
+                  {result.created.appliedTargeting.interests.length > 0 ? (
+                    <p className="text-xs text-zinc-300">
+                      <span className="text-zinc-500">Intereses:</span> {result.created.appliedTargeting.interests.join(', ')}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-zinc-500">Intereses: ninguno (sin segmentación detallada)</p>
+                  )}
+                  {(result.created.appliedTargeting.unresolvedCities.length > 0 ||
+                    result.created.appliedTargeting.unresolvedInterests.length > 0) && (
+                    <p className="mt-1 text-xs text-yellow-500">
+                      ⚠ No se pudo resolver contra Meta:{' '}
+                      {[...result.created.appliedTargeting.unresolvedCities, ...result.created.appliedTargeting.unresolvedInterests].join(
+                        ', ',
+                      )}{' '}
+                      — se omitió, el resto del targeting sí se aplicó.
+                    </p>
+                  )}
+                </>
+              ) : (
+                <p className="text-xs text-zinc-500">Sin datos (campaña generada con una versión anterior del sistema).</p>
+              )}
+            </div>
           </div>
 
           <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-6">
@@ -574,7 +627,7 @@ export function MetaCampaignPanel() {
                   <div key={i} className="rounded-md border border-zinc-800 p-4">
                     <p className="mb-1 text-xs font-medium uppercase tracking-wider text-zinc-500">Variante {i + 1}</p>
                     <p className="font-semibold text-zinc-100">{variant.headline}</p>
-                    <p className="mt-1 text-sm text-zinc-300">{variant.primaryText}</p>
+                    <p className="mt-1 whitespace-pre-wrap text-sm text-zinc-300">{variant.primaryText}</p>
                     <p className="mt-1 text-xs text-zinc-500">{variant.description}</p>
                     <Badge variant="outline" className="mt-2 border-zinc-700 text-zinc-400">
                       {variant.cta}
