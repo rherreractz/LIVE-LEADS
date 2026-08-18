@@ -608,6 +608,21 @@ export function summarizeLeadQualityByCampana(leads: ProcessedLead[]): LeadQuali
 }
 
 /**
+ * Un punto de la gráfica de historial de calidad — mismo tipo que espera
+ * LeadQualityHistoryChart en components/dashboard/lead-charts.tsx. Se
+ * define aquí (no allá) porque leadUtils.ts es seguro de importar tanto
+ * desde Server Components (app/page.tsx) como Client Components
+ * (dashboard-shell.tsx) — lead-charts.tsx es 'use client', así que
+ * importar un tipo desde ahí en un Server Component sería más frágil.
+ */
+export interface LeadQualityHistoryChartPoint {
+  /** Fecha ya formateada para mostrar en el eje X (ej. "14 ago") */
+  label: string;
+  /** Un valor 0-100 (o null si esa Fuente no tenía muestra suficiente ese día) por cada Fuente presente en el histórico. */
+  [fuenteKey: string]: string | number | null;
+}
+
+/**
  * Transforma el historial guardado (un LeadQualityGroup[] por día, ver
  * lib/leadQualityStorage.ts) al formato "ancho" que necesita la gráfica
  * de líneas (LeadQualityHistoryChart en lead-charts.tsx): un objeto por
@@ -620,14 +635,14 @@ export function summarizeLeadQualityByCampana(leads: ProcessedLead[]): LeadQuali
  */
 export function buildLeadQualityHistoryChartData(
   history: { dateKey: string; byFuente: LeadQualityGroup[] }[],
-): { data: Record<string, string | number | null>[]; fuentes: string[] } {
+): { data: LeadQualityHistoryChartPoint[]; fuentes: string[] } {
   const allFuentes = new Set<string>();
   history.forEach((point) => point.byFuente.forEach((g) => allFuentes.add(g.key)));
 
   const fuentes = Array.from(allFuentes).sort();
 
-  const data = history.map((point) => {
-    const row: Record<string, string | number | null> = {
+  const data: LeadQualityHistoryChartPoint[] = history.map((point) => {
+    const row: LeadQualityHistoryChartPoint = {
       label: new Date(`${point.dateKey}T00:00:00`).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' }),
     };
     fuentes.forEach((fuente) => {

@@ -22,6 +22,7 @@ import {
   filterLeads,
   DEFAULT_LEAD_FILTERS,
   type LeadFilters,
+  type LeadQualityHistoryChartPoint,
 } from '@/lib/leadUtils';
 import { exportLeadsToPdf } from '@/lib/exportPdf';
 import type { ProcessedLead } from '@/lib/types';
@@ -73,7 +74,7 @@ export function DashboardShell({
   leadQualityHistory,
 }: {
   leads: ProcessedLead[];
-  leadQualityHistory?: { data: Record<string, string | number | null>[]; fuentes: string[] };
+  leadQualityHistory?: { data: LeadQualityHistoryChartPoint[]; fuentes: string[] };
 }) {
   const [filters, setFilters] = useState<LeadFilters>(DEFAULT_LEAD_FILTERS);
   const [isExporting, setIsExporting] = useState(false);

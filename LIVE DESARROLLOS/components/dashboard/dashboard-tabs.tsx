@@ -4,6 +4,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { DashboardShell } from './dashboard-shell';
 import { MetaAuditPanel } from './meta-audit-panel';
 import { MetaCampaignPanel } from './meta-campaign-panel';
+import type { LeadQualityHistoryChartPoint } from '@/lib/leadUtils';
 import type { ProcessedLead } from '@/lib/types';
 
 export function DashboardTabs({
@@ -13,7 +14,7 @@ export function DashboardTabs({
 }: {
   leads: ProcessedLead[];
   initialHubspotLimit: number;
-  leadQualityHistory: { data: Record<string, string | number | null>[]; fuentes: string[] };
+  leadQualityHistory: { data: LeadQualityHistoryChartPoint[]; fuentes: string[] };
 }) {
   return (
     <Tabs defaultValue="leads" className="flex min-h-0 flex-1 flex-col overflow-hidden">

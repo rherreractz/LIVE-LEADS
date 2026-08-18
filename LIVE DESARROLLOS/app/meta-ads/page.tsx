@@ -8,6 +8,7 @@ import {
   summarizeLeadQualityByFuente,
   summarizeLeadQualityByCampana,
   buildLeadQualityHistoryChartData,
+  type LeadQualityHistoryChartPoint,
 } from '@/lib/leadUtils';
 import { saveLeadQualitySummary, getLeadQualityHistory } from '@/lib/leadQualityStorage';
 import { DashboardTabs } from '@/components/dashboard/dashboard-tabs';
@@ -55,7 +56,7 @@ export default async function DashboardPage() {
   //    tiempo — ya incluye el snapshot de hoy que se acaba de guardar
   //    arriba. Si falla, la gráfica simplemente se muestra vacía, no
   //    tumba el resto del dashboard.
-  let leadQualityHistoryChart: { data: Record<string, string | number | null>[]; fuentes: string[] } = { data: [], fuentes: [] };
+  let leadQualityHistoryChart: { data: LeadQualityHistoryChartPoint[]; fuentes: string[] } = { data: [], fuentes: [] };
   try {
     const history = await getLeadQualityHistory();
     leadQualityHistoryChart = buildLeadQualityHistoryChartData(history);
