@@ -75,6 +75,8 @@ export function DashboardShell({
 }: {
   leads: ProcessedLead[];
   leadQualityHistory?: { data: LeadQualityHistoryChartPoint[]; fuentes: string[] };
+  /** No se usa dentro de este componente todavía — se acepta para que TypeScript no truene cuando dashboard-tabs.tsx lo pasa. */
+  initialHubspotLimit?: number;
 }) {
   const [filters, setFilters] = useState<LeadFilters>(DEFAULT_LEAD_FILTERS);
   const [isExporting, setIsExporting] = useState(false);
