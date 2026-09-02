@@ -53,6 +53,10 @@ export interface AppSettings {
    * cual (logos con color/fondo propio).
    */
   logoBackground: '' | 'dark';
+
+  enableHubspot?: boolean;
+  enableGhl?: boolean;
+  enableTresor?: boolean;
 }
 
 /** Tope de caracteres para el data URI del logo (margen bajo el límite de 50k por celda del Sheet). */

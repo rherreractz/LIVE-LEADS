@@ -3,16 +3,8 @@ import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { formatLeadDate, classifyGhlStageNumber } from '@/lib/leadUtils';
 import type { ProcessedLead } from '@/lib/types';
+import type { AppSettings } from '@/lib/settingsStorage';
 
-/**
- * Nombres completos de las abreviaturas de Fuente, solo para mostrar — el
- * valor real (usado para elegir el color en fuentePillClassName) sigue
- * siendo el original ('fb', 'ig', 'an'), no se toca.
- *
- * 'an' = Audience Network (la red de apps/sitios externos donde Meta
- * también coloca anuncios, junto a Facebook e Instagram) — si no es
- * correcto, avisa y se corrige.
- */
 const FUENTE_FULL_NAME: Record<string, string> = {
   fb: 'Facebook',
   ig: 'Instagram',
@@ -23,7 +15,6 @@ function fuenteDisplayName(fuente: string): string {
   return FUENTE_FULL_NAME[fuente.toLowerCase()] ?? fuente;
 }
 
-/** Clases del badge de "Estado GHL" — SOLO por el número de la etapa de GHL, gris si no hay dato real (nunca cae al color de la Etapa de HubSpot/Sheet, para no confundir). */
 function ghlPillClassName(estadoGHL?: string): string {
   const color = estadoGHL ? classifyGhlStageNumber(estadoGHL) : null;
   if (color === 'Verde') return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400';
@@ -32,48 +23,40 @@ function ghlPillClassName(estadoGHL?: string): string {
   return 'border-border bg-transparent text-muted-foreground';
 }
 
-/**
- * Colorea cualquier texto de estado/etapa como píldora, según palabras
- * clave. No asume un set cerrado de valores (el equipo puede cambiar las
- * opciones en HubSpot en cualquier momento) — por eso funciona por
- * coincidencia de palabras en vez de una lista fija de valores exactos.
- *
- * Rojo    -> perdido, rechazado, no califica, descartado
- * Verde   -> atendido, terminado, cerrado (ganado), conectado, calificado
- * Naranja -> en espera, en proceso, intento, seguimiento
- * Amarillo-> nuevo, sin contactar, primer contacto
- * Gris    -> cualquier otro valor (fallback neutro)
- */
 function statusPillClassName(value?: string): string {
   const v = (value || '').toLowerCase();
 
-  if (v.includes('perdid') || v.includes('rechaz') || v.includes('no califica') || v.includes('descartad')) {
+  if (
+    v.includes('perdid') || v.includes('rechaz') || v.includes('no califica') || v.includes('descartad') ||
+    v.includes('inválido') || v.includes('invalido') || v.includes('no responde') || v.includes('no da cita') ||
+    v.includes('no acude') || v.includes('no hay negocio') || v.includes('cancela') || v.includes('no reserva') || 
+    v.includes('no firma')
+  ) {
     return 'border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400';
   }
+  
   if (
-    v.includes('atendid') ||
-    v.includes('terminad') ||
-    v.includes('cerrad') ||
-    v.includes('conectad') ||
-    v.includes('calific') ||
-    v.includes('ganad')
+    v.includes('nuevo') || v.includes('sin contact') || v.includes('primer contacto') || 
+    v.includes('sin respuesta') || v.includes('registro')
+  ) {
+    return 'border-yellow-500/30 bg-yellow-500/10 text-yellow-700 dark:text-yellow-400';
+  }
+
+  if (
+    v.includes('atendid') || v.includes('terminad') || v.includes('cerrad') || v.includes('conectad') || 
+    v.includes('calific') || v.includes('ganad') || v.includes('contacto') || v.includes('cita') || 
+    v.includes('visita') || v.includes('informes') || v.includes('negocio')
   ) {
     return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400';
   }
+
   if (v.includes('espera') || v.includes('proceso') || v.includes('intento') || v.includes('seguimiento')) {
     return 'border-orange-500/30 bg-orange-500/10 text-orange-700 dark:text-orange-400';
-  }
-  if (v.includes('nuevo') || v.includes('sin contact') || v.includes('primer contacto')) {
-    return 'border-yellow-500/30 bg-yellow-500/10 text-yellow-700 dark:text-yellow-400';
   }
 
   return 'border-border bg-transparent text-muted-foreground';
 }
 
-/**
- * Colorea la píldora de "Fuente" según el canal de origen. Usa
- * coincidencia por texto (no exacta) para tolerar mayúsculas/minúsculas.
- */
 function fuentePillClassName(fuente?: string): string {
   const v = (fuente || '').toLowerCase();
 
@@ -106,7 +89,7 @@ function isToday(date: Date | null) {
   );
 }
 
-export function LeadsTable({ leads }: { leads: ProcessedLead[] }) {
+export function LeadsTable({ leads, settings }: { leads: ProcessedLead[], settings?: AppSettings }) {
   if (leads.length === 0) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -123,7 +106,16 @@ export function LeadsTable({ leads }: { leads: ProcessedLead[] }) {
             <TableHead className="text-muted-foreground">FECHA</TableHead>
             <TableHead className="text-muted-foreground">NOMBRE</TableHead>
             <TableHead className="text-muted-foreground">ESTADO</TableHead>
-            <TableHead className="text-muted-foreground">ESTADO GHL</TableHead>
+            
+            {/* INICIO COLUMNAS CONDICIONALES */}
+            {settings?.enableTresor !== false && (
+              <TableHead className="text-muted-foreground">ESTADO TRESOR</TableHead>
+            )}
+            {settings?.enableGhl !== false && (
+              <TableHead className="text-muted-foreground">ESTADO GHL</TableHead>
+            )}
+            {/* FIN COLUMNAS CONDICIONALES */}
+            
             <TableHead className="text-muted-foreground">PERSONA ENCARGADA</TableHead>
             <TableHead className="text-muted-foreground">FUENTE</TableHead>
             <TableHead className="text-muted-foreground">CONTACTO</TableHead>
@@ -138,11 +130,7 @@ export function LeadsTable({ leads }: { leads: ProcessedLead[] }) {
         </TableHeader>
         <TableBody>
           {leads.map((lead) => {
-            // "Etapa" ahora muestra la etapa de HubSpot (etapaLeadCrm) si
-            // existe; si no hay match en HubSpot, usa la Etapa cruda del
-            // Sheet como respaldo.
-            const etapaDisplay =
-              lead.etapaLeadCrm && lead.etapaLeadCrm !== 'Sin dato' ? lead.etapaLeadCrm : lead.Etapa;
+            const etapaDisplay = lead.etapaLeadCrm && lead.etapaLeadCrm !== 'Sin dato' ? lead.etapaLeadCrm : lead.Etapa;
 
             return (
               <TableRow key={lead.id} className="border-border hover:bg-muted">
@@ -159,20 +147,34 @@ export function LeadsTable({ leads }: { leads: ProcessedLead[] }) {
                     '—'
                   )}
                 </TableCell>
-                <TableCell className="text-muted-foreground">
-                  {lead.estadoGHL ? (
-                    <Badge variant="outline" className={ghlPillClassName(lead.estadoGHL)}>
-                      {lead.estadoGHL}
-                    </Badge>
-                  ) : (
-                    '—'
-                  )}
-                </TableCell>
+                
+                {/* INICIO CELDAS CONDICIONALES */}
+                {settings?.enableTresor !== false && (
+                  <TableCell className="text-muted-foreground">
+                    {lead.estadoTresor && lead.estadoTresor !== 'Sin dato' ? (
+                      <Badge variant="outline" className={statusPillClassName(lead.estadoTresor)}>
+                        {lead.estadoTresor}
+                      </Badge>
+                    ) : (
+                      '—'
+                    )}
+                  </TableCell>
+                )}
+                {settings?.enableGhl !== false && (
+                  <TableCell className="text-muted-foreground">
+                    {lead.estadoGHL && lead.estadoGHL !== 'Sin dato' ? (
+                      <Badge variant="outline" className={ghlPillClassName(lead.estadoGHL)}>
+                        {lead.estadoGHL}
+                      </Badge>
+                    ) : (
+                      '—'
+                    )}
+                  </TableCell>
+                )}
+                {/* FIN CELDAS CONDICIONALES */}
+                
                 <TableCell className="text-muted-foreground">
                   {(() => {
-                    // HubSpot primero; si no hay dato ahí, cae a GHL — un
-                    // lead no debería tener dueño en los dos CRMs a la vez,
-                    // así que uno de los dos casi siempre va a estar vacío.
                     if (lead.propietarioCrm && lead.propietarioCrm !== 'Sin asignar') return lead.propietarioCrm;
                     if (lead.personaEncargadaGHL && lead.personaEncargadaGHL !== 'Sin asignar') return lead.personaEncargadaGHL;
                     return '—';

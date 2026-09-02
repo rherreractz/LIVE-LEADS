@@ -1,6 +1,7 @@
 import type { RawLead, ProcessedLead, MotivoCategoria, LeadStatus } from './types';
 import type { HubspotStatusMap, HubspotContactInfo } from './hubspot';
 import type { GhlStatusMap } from './ghl';
+import type { AppSettings } from './settingsStorage';
 
 const SMALL_WORDS = new Set([
   'a', 'de', 'del', 'la', 'el', 'los', 'las', 'en', 'y', 'o', 'un', 'una', 'al',
@@ -217,16 +218,22 @@ export function getHubspotOnlyRawLeads(existingLeads: RawLead[], hubspotMap: Hub
  * HubSpot, buscando primero por teléfono y usando el correo como respaldo.
  * Los leads sin match en HubSpot quedan con 'Sin dato' en ambos campos.
  */
-export function mergeHubspotStatus(leads: ProcessedLead[], hubspotMap: HubspotStatusMap): ProcessedLead[] {
+/**
+ * Cruza los leads procesados (Google Sheets) con el mapa de estados de HubSpot.
+ * Respeta el interruptor de los Ajustes.
+ */
+export function mergeHubspotStatus(leads: ProcessedLead[], hubspotMap: HubspotStatusMap, settings?: AppSettings): ProcessedLead[] {
+  const enabled = settings?.enableHubspot !== false;
   let matched = 0;
 
   const result = leads.map((lead) => {
     const phoneKey = normalizePhone(lead.Telefono);
     const emailKey = normalizeEmail(lead.Correo);
 
-    const match =
+    const match = enabled ? (
       (phoneKey ? hubspotMap.byPhone.get(phoneKey) : undefined) ??
-      (emailKey ? hubspotMap.byEmail.get(emailKey) : undefined);
+      (emailKey ? hubspotMap.byEmail.get(emailKey) : undefined)
+    ) : undefined;
 
     if (match) matched += 1;
 
@@ -239,24 +246,24 @@ export function mergeHubspotStatus(leads: ProcessedLead[], hubspotMap: HubspotSt
     };
   });
 
-  console.log(
-    `[hubspot] Cruce Sheet <-> HubSpot: ${matched} de ${leads.length} leads del Sheet encontraron su contacto en HubSpot (de ${hubspotMap.byPhone.size} tel. / ${hubspotMap.byEmail.size} correos indexados).`,
-  );
+  if (enabled) {
+    console.log(`[hubspot] Cruce Sheet <-> HubSpot: ${matched} de ${leads.length} leads del Sheet encontraron su contacto en HubSpot.`);
+  }
 
   return result;
 }
 
 /**
- * Cruza los leads con el estado de GoHighLevel — SOLO por correo (a
- * diferencia de HubSpot, que también intenta por teléfono), porque así lo
- * pidió el equipo explícitamente para esta integración.
+ * Cruza los leads con el estado de GoHighLevel (SOLO por correo).
+ * Respeta el interruptor de los Ajustes.
  */
-export function mergeGhlStatus(leads: ProcessedLead[], ghlMap: GhlStatusMap): ProcessedLead[] {
+export function mergeGhlStatus(leads: ProcessedLead[], ghlMap: GhlStatusMap, settings?: AppSettings): ProcessedLead[] {
+  const enabled = settings?.enableGhl !== false;
   let matched = 0;
 
   const result = leads.map((lead) => {
     const emailKey = normalizeEmail(lead.Correo);
-    const match = emailKey ? ghlMap.byEmail.get(emailKey) : undefined;
+    const match = (enabled && emailKey) ? ghlMap.byEmail.get(emailKey) : undefined;
 
     if (match) matched += 1;
 
@@ -268,10 +275,41 @@ export function mergeGhlStatus(leads: ProcessedLead[], ghlMap: GhlStatusMap): Pr
     };
   });
 
-  console.log(`[ghl] Cruce Sheet <-> GoHighLevel: ${matched} de ${leads.length} leads encontraron su oportunidad en GHL (de ${ghlMap.byEmail.size} correos indexados).`);
+  if (enabled) {
+    console.log(`[ghl] Cruce Sheet <-> GoHighLevel: ${matched} de ${leads.length} leads encontraron su oportunidad en GHL.`);
+  }
 
   return result;
 }
+
+/**
+ * NUEVO: Cruza los leads con el estado de la API de Tresor (SOLO por correo).
+ * Respeta el interruptor de los Ajustes.
+ */
+export function mergeTresorStatus(leads: ProcessedLead[], tresorMap: Map<string, any>, settings?: AppSettings): ProcessedLead[] {
+  const enabled = settings?.enableTresor !== false;
+  let matched = 0;
+
+  const result = leads.map((lead) => {
+    const emailKey = normalizeEmail(lead.Correo);
+    const match = (enabled && emailKey) ? tresorMap.get(emailKey) : undefined;
+
+    if (match) matched += 1;
+
+    return {
+      ...lead,
+      estadoTresor: match?.stage || 'Sin dato',
+      pipelineTresor: match?.pipeline || 'Sin dato',
+    };
+  });
+
+  if (enabled) {
+    console.log(`[tresor] Cruce Sheet <-> Tresor: ${matched} de ${leads.length} leads encontraron su contacto en Tresor.`);
+  }
+
+  return result;
+}
+
 
 // ---------------------------------------------------------------------------
 // Agregaciones para alimentar las gráficas de Recharts
@@ -388,25 +426,39 @@ export function classifyGhlStageNumber(stageName: string): 'Rojo' | 'Amarillo' |
  * "primer contacto" a secas.
  */
 function classifyEtapaColor(etapaRaw: string): 'Rojo' | 'Amarillo' | 'Verde' | null {
-  const v = etapaRaw.trim().toLowerCase();
+  const v = (etapaRaw || '').trim().toLowerCase();
   if (!v) return null;
 
-  // --- Rojo: descartado / no avanza ---
-  if (v.includes('no califica')) return 'Rojo';
-  if (v.includes('inválido') || v.includes('invalido')) return 'Rojo';
-  if (v.includes('no responde')) return 'Rojo';
-  if (v.includes('no da cita')) return 'Rojo';
+  // --- Rojo: descartado / no avanza (Incluye nuevas etapas Tresor) ---
+  if (
+    v.includes('no califica') || 
+    v.includes('inválido') || 
+    v.includes('invalido') || 
+    v.includes('no responde') || 
+    v.includes('no da cita') ||
+    v.includes('no acude') ||
+    v.includes('no hay negocio') ||
+    v.includes('no reserva') ||
+    v.includes('cancela') ||
+    v.includes('no firma')
+  ) {
+    return 'Rojo';
+  }
 
   // --- Amarillo: todavía pendiente / sin resolver ---
   if (v.includes('sin respuesta')) return 'Amarillo'; // ej. "Primer contacto sin respuesta"
   if (v.includes('registro')) return 'Amarillo';
 
   // --- Verde: ya hubo avance/interacción real ---
-  if (v.includes('contacto')) return 'Verde'; // "Contacto", "Primer contacto" (sin "sin respuesta", ya se descartó arriba)
-  if (v.includes('cita')) return 'Verde'; // "Cita" (ya se descartó "no da cita" arriba)
-  if (v.includes('visita')) return 'Verde';
-  if (v.includes('informes')) return 'Verde';
-  if (v.includes('negocio')) return 'Verde';
+  if (
+    v.includes('contacto') || 
+    v.includes('cita') || 
+    v.includes('visita') || 
+    v.includes('informes') || 
+    v.includes('negocio')
+  ) {
+    return 'Verde';
+  }
 
   return null;
 }
@@ -418,10 +470,19 @@ function classifyEtapaColor(etapaRaw: string): 'Rojo' | 'Amarillo' | 'Verde' | n
  * método anterior por palabra clave sobre la Etapa de HubSpot/Sheet.
  */
 export function getSemaforoColor(lead: ProcessedLead): 'Rojo' | 'Amarillo' | 'Verde' | null {
+  // 1. Prioridad 1: Tresor (Fuentes propias) usando la función de palabras clave
+  if (lead.estadoTresor) {
+    const fromTresor = classifyEtapaColor(lead.estadoTresor);
+    if (fromTresor) return fromTresor;
+  }
+
+  // 2. Prioridad 2: GoHighLevel usando la validación de números
   if (lead.estadoGHL) {
     const fromGhl = classifyGhlStageNumber(lead.estadoGHL);
     if (fromGhl) return fromGhl;
   }
+
+  // 3. Fallback: HubSpot o Etapa cruda del Sheet
   return classifyEtapaColor(lead.etapaLeadCrm || lead.Etapa || '');
 }
 

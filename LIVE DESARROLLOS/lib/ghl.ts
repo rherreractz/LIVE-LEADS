@@ -1,201 +1,141 @@
 import { normalizeEmail } from './leadUtils';
 
 /**
- * Integración con GoHighLevel (GHL) — API v2, autenticada con un Private
- * Integration Token (los API Keys viejos de v1 ya no se pueden generar,
- * GHL los dio de baja a finales de 2025).
+ * "Integración con GoHighLevel (GHL)" — mantiene el nombre del módulo y la
+ * forma de sus exports (GhlStatusMap/GhlStatusEntry/getGhlStatusMap/
+ * lookupGhlStatus) porque el resto del código (dashboardData.ts,
+ * mergeGhlStatus en leadUtils.ts, la columna "Estado GHL" de la tabla) los
+ * consume tal cual — pero la FUENTE de los datos cambió.
  *
- * Trae las oportunidades (tus leads dentro de GHL) con su Stage del
- * pipeline y el usuario asignado, y arma un mapa por CORREO normalizado
- * para mezclarlo con los leads que ya vienen de Sheets/HubSpot — mismo
- * patrón que lib/hubspot.ts.
+ * CAMBIO (ver CONTEXTO_GENERAL sección 8.1): a Carlo le quitaron el acceso
+ * al Private Integration Token directo de GHL. A cambio, el equipo le dio
+ * acceso a un API de solo lectura ya construido, que reempaca los mismos
+ * contactos/pipeline/stage de GHL:
  *
- * Variables de entorno requeridas:
- * GHL_PRIVATE_TOKEN="pit-..."
- * GHL_LOCATION_ID="..."
+ *   GET {TRESOR_CONTACTS_API_URL}?page=N&pageSize=100
+ *   Header: Authorization: Bearer {TRESOR_CONTACTS_API_KEY}
+ *   -> { data: [{ name, phone, email, pipeline, stage, createdAt, lastActivity }], page, pageSize, total, totalPages }
  *
- * Opcional — si el endpoint de usuarios de GHL no responde bien (le pasó a
- * otra herramienta del equipo, según vimos), puedes definir un mapa fijo
- * de respaldo en vez de depender de la API:
- * GHL_USERS_FALLBACK='{"userId1":"Nombre Apellido","userId2":"Otro Nombre"}'
+ * Ya NO se llaman `/opportunities/pipelines`, `/opportunities/search` ni
+ * `/users/` de GHL directamente — el API de Tresor ya entrega `pipeline` y
+ * `stage` como texto legible, así que no hace falta resolver IDs de
+ * pipeline/stage ni de usuario por separado.
+ *
+ * Nota: este API NO expone quién tiene asignado el lead (no hay
+ * "assignedTo"), así que `personaEncargadaGHL` queda fija en "Sin asignar"
+ * hasta que se consiga ese dato de otra fuente.
+ *
+ * Variables de entorno requeridas (reemplazan a GHL_PRIVATE_TOKEN /
+ * GHL_LOCATION_ID / GHL_USERS_FALLBACK, que ya no se usan aquí — se dejan
+ * en el .env por si el token directo de GHL se recupera más adelante y se
+ * quiere revertir este cambio, ver historial de git de este archivo):
+ *
+ *   TRESOR_CONTACTS_API_URL="https://reporte-ads-tresor.vercel.app/api/public/contacts"
+ *   TRESOR_CONTACTS_API_KEY="..."
  */
 
-const GHL_API_BASE = 'https://services.leadconnectorhq.com';
-const GHL_API_VERSION = '2021-07-28';
-
-interface GhlPipelineStage {
-  id: string;
+interface TresorContact {
   name: string;
+  phone: string;
+  email: string;
+  pipeline: string;
+  stage: string;
+  createdAt: string;
+  lastActivity: string;
 }
 
-interface GhlPipeline {
-  id: string;
-  name: string;
-  stages: GhlPipelineStage[];
-}
-
-interface GhlOpportunity {
-  id: string;
-  name: string;
-  pipelineId: string;
-  pipelineStageId: string;
-  assignedTo?: string | null;
-  contactId: string;
-  contact?: { email?: string | null; phone?: string | null } | null;
+interface TresorContactsResponse {
+  data: TresorContact[];
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
 }
 
 export interface GhlStatusEntry {
-  estadoGHL: string; // nombre del Stage, ej. "Registro", "Contacto"
-  pipelineGHL: string; // nombre del Pipeline al que pertenece
-  personaEncargadaGHL: string; // nombre del usuario asignado, o "Sin asignar"
+  estadoGHL: string; // antes: nombre del Stage de GHL. Ahora: campo `stage` del API de Tresor.
+  pipelineGHL: string; // antes: nombre del Pipeline de GHL. Ahora: campo `pipeline` del API de Tresor.
+  personaEncargadaGHL: string; // el API de Tresor no expone esto todavía — siempre "Sin asignar".
 }
 
 export interface GhlStatusMap {
   byEmail: Map<string, GhlStatusEntry>;
 }
 
-function ghlHeaders(token: string) {
-  return {
-    Authorization: `Bearer ${token}`,
-    Version: GHL_API_VERSION,
-    Accept: 'application/json',
-  };
-}
+/** Trae TODOS los contactos del API de Tresor (paginado, 100 por página). */
+async function fetchAllTresorContacts(apiUrl: string, apiKey: string): Promise<TresorContact[]> {
+  const all: TresorContact[] = [];
+  let page = 1;
+  const pageSize = 100;
 
-/** Trae todos los pipelines de la Location, con sus Stages (id -> nombre). */
-async function fetchPipelines(token: string, locationId: string): Promise<Map<string, GhlPipeline>> {
-  const url = `${GHL_API_BASE}/opportunities/pipelines?locationId=${encodeURIComponent(locationId)}`;
-  const res = await fetch(url, { headers: ghlHeaders(token) });
-
-  if (!res.ok) {
-    console.error(`[ghl] Error ${res.status} al leer pipelines:`, await res.text());
-    return new Map();
-  }
-
-  const data = await res.json();
-  const pipelines: GhlPipeline[] = data.pipelines ?? [];
-  return new Map(pipelines.map((p) => [p.id, p]));
-}
-
-/**
- * Trae el mapa userId -> nombre. Primero intenta la API real; si falla o
- * viene vacía (le pasa a veces a GHL), cae al mapa fijo de
- * GHL_USERS_FALLBACK si está configurado, para no dejar todo en blanco.
- */
-async function fetchUsersMap(token: string, locationId: string): Promise<Map<string, string>> {
-  try {
-    const url = `${GHL_API_BASE}/users/?locationId=${encodeURIComponent(locationId)}`;
-    const res = await fetch(url, { headers: ghlHeaders(token) });
-    if (res.ok) {
-      const data = await res.json();
-      const users: { id: string; name?: string; firstName?: string; lastName?: string }[] = data.users ?? [];
-      if (users.length > 0) {
-        return new Map(
-          users.map((u) => [u.id, u.name || [u.firstName, u.lastName].filter(Boolean).join(' ') || 'Sin nombre']),
-        );
-      }
-    } else {
-      console.error(`[ghl] Error ${res.status} al leer usuarios, se usará el respaldo si existe:`, await res.text());
-    }
-  } catch (error) {
-    console.error('[ghl] Error de red al leer usuarios, se usará el respaldo si existe:', error);
-  }
-
-  // Respaldo: mapa fijo por variable de entorno.
-  const fallbackRaw = process.env.GHL_USERS_FALLBACK;
-  if (fallbackRaw) {
-    try {
-      const fallback = JSON.parse(fallbackRaw) as Record<string, string>;
-      return new Map(Object.entries(fallback));
-    } catch {
-      console.error('[ghl] GHL_USERS_FALLBACK no es JSON válido.');
-    }
-  }
-
-  return new Map();
-}
-
-/** Trae TODAS las oportunidades de la Location (paginado). */
-async function fetchAllOpportunities(token: string, locationId: string): Promise<GhlOpportunity[]> {
-  const all: GhlOpportunity[] = [];
-  let nextPageUrl: string | null =
-    `${GHL_API_BASE}/opportunities/search?location_id=${encodeURIComponent(locationId)}&limit=100`;
-
-  // Tope de seguridad: máximo 60 páginas (a 100 por página = 6000
-  // oportunidades). La cuenta real tiene ~4,642 al momento de escribir
-  // esto — con margen para que siga creciendo sin tocar código.
+  // Tope de seguridad, mismo espíritu que el `safety` del fetch viejo de
+  // oportunidades de GHL: máximo 60 páginas (6000 contactos) para no
+  // quedar en loop si el API responde algo inesperado.
   let safety = 0;
-  while (nextPageUrl && safety < 60) {
+  while (safety < 60) {
     safety += 1;
-    const res: Response = await fetch(nextPageUrl, { headers: ghlHeaders(token) });
+
+    const url = `${apiUrl}?page=${page}&pageSize=${pageSize}`;
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+
     if (!res.ok) {
-      console.error(`[ghl] Error ${res.status} al leer oportunidades:`, await res.text());
+      console.error(`[ghl] Error ${res.status} al leer contactos de Tresor (página ${page}):`, await res.text());
       break;
     }
-    const data = await res.json();
-    const opportunities: GhlOpportunity[] = data.opportunities ?? [];
-    all.push(...opportunities);
 
-    // La API v2 de GHL pagina con un cursor "meta.nextPageUrl" o similar —
-    // si no viene, asumimos que ya no hay más páginas.
-    nextPageUrl = data.meta?.nextPageUrl ?? null;
+    const json: TresorContactsResponse = await res.json();
+    all.push(...json.data);
+
+    if (page >= json.totalPages) break;
+    page += 1;
   }
 
   return all;
 }
 
 /**
- * Versión SIN caché — hace el trabajo pesado real (pipelines + usuarios +
- * las ~47 páginas de oportunidades). Úsala solo si necesitas datos 100%
- * frescos ahora mismo; para el uso normal del dashboard usa
- * getGhlStatusMap() de abajo, que cachea el resultado.
+ * Versión SIN caché — hace el trabajo pesado real (todas las páginas de
+ * contactos). Úsala solo si necesitas datos 100% frescos ahora mismo; para
+ * el uso normal del dashboard usa getGhlStatusMap() de abajo, que cachea.
  */
 async function getGhlStatusMapUncached(): Promise<GhlStatusMap> {
-  const token = process.env.GHL_PRIVATE_TOKEN;
-  const locationId = process.env.GHL_LOCATION_ID;
+  const apiUrl = process.env.TRESOR_CONTACTS_API_URL;
+  const apiKey = process.env.TRESOR_CONTACTS_API_KEY;
 
-  if (!token || !locationId) {
-    console.error('[ghl] Faltan GHL_PRIVATE_TOKEN / GHL_LOCATION_ID — se omite la integración con GoHighLevel.');
+  if (!apiUrl || !apiKey) {
+    console.error('[ghl] Faltan TRESOR_CONTACTS_API_URL / TRESOR_CONTACTS_API_KEY — se omite el enriquecimiento de GHL.');
     return { byEmail: new Map() };
   }
 
-  const [pipelines, usersMap, opportunities] = await Promise.all([
-    fetchPipelines(token, locationId),
-    fetchUsersMap(token, locationId),
-    fetchAllOpportunities(token, locationId),
-  ]);
+  const contacts = await fetchAllTresorContacts(apiUrl, apiKey);
 
   const byEmail = new Map<string, GhlStatusEntry>();
 
-  for (const opp of opportunities) {
-    const email = normalizeEmail(opp.contact?.email);
+  for (const contact of contacts) {
+    const email = normalizeEmail(contact.email);
     if (!email) continue; // sin correo no podemos cruzarlo con tus leads
 
-    const pipeline = pipelines.get(opp.pipelineId);
-    const stage = pipeline?.stages.find((s) => s.id === opp.pipelineStageId);
-
     byEmail.set(email, {
-      estadoGHL: stage?.name ?? 'Sin etapa',
-      pipelineGHL: pipeline?.name ?? 'Sin pipeline',
-      personaEncargadaGHL: opp.assignedTo ? (usersMap.get(opp.assignedTo) ?? 'Sin asignar') : 'Sin asignar',
+      estadoGHL: contact.stage || 'Sin etapa',
+      pipelineGHL: contact.pipeline || 'Sin pipeline',
+      personaEncargadaGHL: 'Sin asignar',
     });
   }
 
-  console.log(`[ghl] Refrescado: ${byEmail.size} correos indexados de ${opportunities.length} oportunidades.`);
+  console.log(`[ghl] Refrescado (vía Tresor Contacts API): ${byEmail.size} correos indexados de ${contacts.length} contactos.`);
 
   return { byEmail };
 }
 
 /**
- * CACHÉ EN MEMORIA — la cuenta tiene ~4,600 oportunidades, traerlas todas
- * (paginado, ~47 llamadas seguidas a la API) tarda 15-30+ segundos. Sin
- * caché, esto pasaba en CADA carga del dashboard. Con esto, solo la
- * primera visita (o la primera después de que expire el caché) paga ese
- * costo — el resto se sirve al instante desde memoria.
+ * CACHÉ EN MEMORIA — mismo patrón que antes. El API de Tresor pagina más
+ * rápido que GHL directo (no hay que resolver pipelines/usuarios aparte),
+ * pero seguimos cacheando para no pegarle en cada carga del dashboard.
  *
- * Vive mientras la función serverless siga "caliente" (Vercel reutiliza
- * la misma instancia entre requests seguidos) — en un cold start se
- * vuelve a llenar solo, sin que haya que hacer nada manualmente.
+ * Vive mientras la función serverless siga "caliente" — en un cold start
+ * se vuelve a llenar solo, sin que haya que hacer nada manualmente.
  */
 const GHL_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutos
 
@@ -228,7 +168,7 @@ export async function getGhlStatusMap(): Promise<GhlStatusMap> {
   return ghlCacheInFlight;
 }
 
-/** Busca el estado de GHL de un lead por su correo (ya normalizado o crudo). */
+/** Busca el estado de GHL (vía Tresor) de un lead por su correo (ya normalizado o crudo). */
 export function lookupGhlStatus(map: GhlStatusMap, email?: string | null): GhlStatusEntry | null {
   const key = normalizeEmail(email);
   if (!key) return null;

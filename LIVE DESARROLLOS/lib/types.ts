@@ -46,4 +46,7 @@ export interface ProcessedLead extends RawLead {
   pipelineGHL?: string;
   /** Persona encargada del lead en GoHighLevel */
   personaEncargadaGHL?: string;
+  
+  estadoTresor?: string;
+  pipelineTresor?: string;
 }

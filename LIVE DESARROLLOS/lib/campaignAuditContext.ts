@@ -69,12 +69,6 @@ export async function buildLeadQualityContextText(): Promise<string> {
   return lines.join('\n');
 }
 
-/**
- * Combina auditoría técnica + calidad real de leads en un solo bloque de
- * texto — esto es lo que se le pasa a generateCampaignBrief como
- * auditContext. Úsala en vez de llamar las dos funciones de arriba por
- * separado, salvo que necesites solo una de las dos.
- */
 export async function buildCampaignContext(accountId: string): Promise<string> {
   const [auditText, leadQualityText] = await Promise.all([buildAuditContextText(accountId), buildLeadQualityContextText()]);
 

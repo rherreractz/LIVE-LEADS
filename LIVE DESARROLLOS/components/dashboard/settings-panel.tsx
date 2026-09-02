@@ -8,9 +8,6 @@ import type { AppSettings } from '@/lib/settingsStorage';
 
 type Section = 'general' | 'advanced';
 
-// Un poco por debajo del tope del servidor (LOGO_DATA_URI_MAX_LENGTH en
-// lib/settingsStorage.ts) — no se importa de ahí para no arrastrar
-// google-spreadsheet al bundle del cliente.
 const LOGO_MAX_DATA_URI_LENGTH = 44000;
 const LOGO_ACCEPTED_TYPES = 'image/png,image/jpeg,image/webp,image/svg+xml,image/gif';
 
@@ -29,12 +26,6 @@ const THEME_OPTIONS: { value: string; label: string }[] = [
   { value: 'system', label: 'Sistema' },
 ];
 
-/**
- * Selector de modo claro / oscuro. Usa el hook `useTheme()` de next-themes —
- * el mismo sistema que alterna el atajo de teclado "D", así que ambos se
- * mantienen sincronizados. `mounted` evita el desajuste de hidratación
- * (en el server `theme` siempre es undefined).
- */
 function ThemeSwitch() {
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
@@ -70,13 +61,6 @@ const NAV_ITEMS: { id: Section; label: string }[] = [
   { id: 'advanced', label: 'Avanzado' },
 ];
 
-/**
- * Panel de Ajustes, con layout tipo sidebar (menú a la izquierda, contenido
- * a la derecha) — mismo patrón que Stripe/Notion/HubSpot para sus pantallas
- * de configuración. Guarda en la pestaña "Settings" del Sheet de storage
- * (vía /api/settings) — NUNCA maneja tokens/claves de API, esas se quedan
- * en el .env del servidor por seguridad.
- */
 export function SettingsPanel({ initialSettings }: { initialSettings: AppSettings }) {
   const [settings, setSettings] = useState<AppSettings>(initialSettings);
   const [section, setSection] = useState<Section>('general');
@@ -134,14 +118,23 @@ export function SettingsPanel({ initialSettings }: { initialSettings: AppSetting
     }
   }
 
+  // Helper para leer el estado del switch (por default true si es undefined)
+  const isSourceEnabled = (key: 'enableHubspot' | 'enableGhl' | 'enableTresor') => {
+    return settings[key] !== false; 
+  };
+
+  const toggleSource = (key: 'enableHubspot' | 'enableGhl' | 'enableTresor') => {
+    setSettings(s => ({ ...s, [key]: !isSourceEnabled(key) }));
+  };
+
+  const SOURCES = [
+    { key: 'enableHubspot', label: 'HubSpot', note: 'teléfono y correo' },
+    { key: 'enableGhl', label: 'GoHighLevel', note: 'solo correo' },
+    { key: 'enableTresor', label: 'Fuentes Propias (Tresor)', note: 'solo correo' },
+  ] as const;
+
   return (
-    // En mobile (< sm) apilado: el menú va arriba como fila horizontal
-    // angosta y el contenido ocupa TODO el ancho debajo — con la sidebar
-    // fija de antes (w-48 en una fila junto al contenido) en pantallas
-    // angostas (~360px) casi no quedaba espacio para el contenido. Desde
-    // sm: hacia arriba se vuelve a la sidebar de siempre, sin cambios.
     <div className="flex h-full min-h-0 flex-col sm:flex-row">
-      {/* Menú de navegación interna de Ajustes: sidebar en desktop, fila de tabs scrolleable en mobile */}
       <nav className="shrink-0 border-b border-border p-2 sm:w-48 sm:border-b-0 sm:border-r sm:p-3">
         <p className="mb-2 hidden px-2 text-xs font-medium uppercase tracking-wider text-muted-foreground sm:block">Ajustes</p>
         <ul className="flex gap-1 overflow-x-auto [scrollbar-width:none] sm:flex-col sm:gap-0.5 sm:overflow-visible [&::-webkit-scrollbar]:hidden">
@@ -161,7 +154,6 @@ export function SettingsPanel({ initialSettings }: { initialSettings: AppSetting
         </ul>
       </nav>
 
-      {/* Contenido de la sección seleccionada */}
       <div className="min-h-0 flex-1 overflow-auto p-4 sm:p-6">
         <div className="mx-auto flex max-w-xl flex-col gap-6">
           {section === 'general' && (
@@ -174,7 +166,7 @@ export function SettingsPanel({ initialSettings }: { initialSettings: AppSetting
                 </label>
                 <Input
                   id="displayName"
-                  value={settings.displayName}
+                  value={settings.displayName || ''}
                   onChange={(e) => setSettings((s) => ({ ...s, displayName: e.target.value }))}
                   placeholder="(usa el nombre por default del proyecto)"
                   className="border-border bg-background text-foreground"
@@ -193,7 +185,6 @@ export function SettingsPanel({ initialSettings }: { initialSettings: AppSetting
                     }`}
                   >
                     {settings.logoDataUri ? (
-                      // eslint-disable-next-line @next/next/no-img-element
                       <img src={settings.logoDataUri} alt="Logo" className="max-h-full max-w-full object-contain" />
                     ) : (
                       <span className="text-[10px] text-muted-foreground">sin logo</span>
@@ -259,7 +250,7 @@ export function SettingsPanel({ initialSettings }: { initialSettings: AppSetting
                   />
                   <Input
                     id="primaryColor"
-                    value={settings.primaryColor}
+                    value={settings.primaryColor || ''}
                     onChange={(e) => setSettings((s) => ({ ...s, primaryColor: e.target.value }))}
                     placeholder="(usa el color por default del proyecto)"
                     className="border-border bg-background text-foreground"
@@ -276,37 +267,41 @@ export function SettingsPanel({ initialSettings }: { initialSettings: AppSetting
               <h2 className="text-lg font-semibold text-foreground">Avanzado</h2>
 
               <div className="flex flex-col gap-2">
-                <label className="text-sm text-muted-foreground">Fuente de leads</label>
+                <label className="text-sm text-muted-foreground">Fuentes de enriquecimiento de leads</label>
                 <p className="text-xs text-muted-foreground">
-                  Live lee los leads de un Google Sheet fijo. HubSpot y GoHighLevel se usan solo para <strong>enriquecer</strong> el
-                  estado de esos leads (HubSpot por teléfono/correo, GHL solo por correo). No se puede conmutar la fuente desde aquí —
-                  los interruptores son informativos.
+                  Live lee los leads crudos de Google Sheets de forma permanente. Usa estos interruptores para habilitar o deshabilitar qué sistemas externos cruzan su información para actualizar el estado y etapa de esos leads en el panel.
                 </p>
 
-                {(
-                  [
-                    { key: 'hubspot', label: 'HubSpot', note: 'enriquecimiento' },
-                    { key: 'ghl', label: 'GoHighLevel', note: 'enriquecimiento' },
-                  ] as const
-                ).map((source) => (
-                  <div
-                    key={source.key}
-                    className="flex items-center justify-between gap-3 rounded-md border border-emerald-500/40 bg-emerald-500/5 px-3 py-2 opacity-80"
-                    title="No se puede cambiar desde aquí"
-                  >
-                    <span className="text-sm text-foreground">
-                      {source.label} <span className="text-xs text-muted-foreground">· {source.note}</span>
-                    </span>
-                    <span
-                      role="switch"
-                      aria-checked="true"
-                      aria-disabled="true"
-                      className="relative inline-flex h-5 w-9 shrink-0 cursor-not-allowed items-center rounded-full bg-emerald-500"
+                {SOURCES.map((source) => {
+                  const enabled = isSourceEnabled(source.key);
+                  return (
+                    <div
+                      key={source.key}
+                      className={`flex items-center justify-between gap-3 rounded-md border px-3 py-2 transition-colors ${
+                        enabled 
+                          ? 'border-emerald-500/40 bg-emerald-500/5' 
+                          : 'border-border bg-muted/30'
+                      }`}
                     >
-                      <span className="inline-block h-3.5 w-3.5 translate-x-4 rounded-full bg-white shadow" />
-                    </span>
-                  </div>
-                ))}
+                      <span className={`text-sm ${enabled ? 'text-foreground' : 'text-muted-foreground'}`}>
+                        {source.label} <span className="text-xs opacity-70">· {source.note}</span>
+                      </span>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={enabled}
+                        onClick={() => toggleSource(source.key)}
+                        className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors ${
+                          enabled ? 'bg-emerald-500' : 'bg-muted-foreground/30'
+                        }`}
+                      >
+                        <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${
+                          enabled ? 'translate-x-4' : 'translate-x-1'
+                        }`} />
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
 
               <div className="flex flex-col gap-1.5">
@@ -315,14 +310,13 @@ export function SettingsPanel({ initialSettings }: { initialSettings: AppSetting
                 </label>
                 <Input
                   id="metaPageId"
-                  value={settings.metaPageId}
+                  value={settings.metaPageId || ''}
                   onChange={(e) => setSettings((s) => ({ ...s, metaPageId: e.target.value }))}
                   placeholder="(usa NEXT_PUBLIC_META_PAGE_ID del servidor)"
                   className="border-border bg-background text-foreground"
                 />
                 <p className="text-xs text-muted-foreground">
-                  Precarga este ID en el formulario de "Generar Campaña". Déjalo vacío para usar el que ya está configurado en el
-                  servidor.
+                  Precarga este ID en el formulario de "Generar Campaña". Déjalo vacío para usar el que ya está configurado en el servidor.
                 </p>
               </div>
 

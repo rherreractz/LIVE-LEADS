@@ -1,10 +1,12 @@
 import { getLeads } from './googleSheets';
 import { getHubspotStatusMap } from './hubspot';
 import { getGhlStatusMap } from './ghl';
+import { getTresorStatusMap } from './tresorContacts';
 import {
   processLeads,
   mergeHubspotStatus,
   mergeGhlStatus,
+  mergeTresorStatus,
   summarizeLeadQualityByFuente,
   summarizeLeadQualityByCampana,
   buildLeadQualityHistoryChartData,
@@ -22,42 +24,30 @@ export interface DashboardData {
   settings: AppSettings;
 }
 
-/**
- * Carga TODO lo que necesitan app/page.tsx y app/meta-ads/page.tsx (antes
- * esta lógica estaba duplicada letra por letra en los dos archivos).
- *
- * Live usa un Google Sheet como fuente PRIMARIA de leads; HubSpot y GHL solo
- * ENRIQUECEN el estado de esos leads (HubSpot por teléfono/correo, GHL solo
- * por correo). Ese pipeline NO cambió — lo único nuevo es que además se lee
- * la configuración editable del panel (`getSettings()`), que vive en la
- * pestaña "Settings" del mismo Sheet de storage.
- *
- * @param logPrefix Prefijo para los console.error (ej. 'page' o 'meta-ads/page').
- */
 export async function loadDashboardData(logPrefix: string): Promise<DashboardData> {
   const settings = await getSettings();
 
-  // Las 3 fuentes en paralelo. GHL puede tardar (cuenta grande, paginado) —
-  // si falla o tarda demasiado, no tumba el dashboard: solo la columna
-  // "Estado GHL" queda sin dato por esta vez.
-  const [rawLeads, hubspotMap, ghlMap] = await Promise.all([
+  // Las fuentes de enriquecimiento en paralelo. 
+  // Usamos .catch en GHL y Tresor para no tumbar el dashboard si fallan.
+  const [rawLeads, hubspotMap, ghlMap, tresorMap] = await Promise.all([
     getLeads(),
     getHubspotStatusMap(),
     getGhlStatusMap().catch((err) => {
       console.error(`[${logPrefix}] Error al leer GoHighLevel, se omite por esta vez:`, err);
       return { byEmail: new Map() } as Awaited<ReturnType<typeof getGhlStatusMap>>;
     }),
+    getTresorStatusMap().catch((err) => {
+      console.error(`[${logPrefix}] Error al leer Tresor, se omite por esta vez:`, err);
+      return new Map<string, any>();
+    }),
   ]);
 
-  // Limpieza + dedupe SOLO sobre los leads reales del Sheet, luego cruce con
-  // el estado del CRM (HubSpot primero, GHL después — GHL cruza solo por correo).
-  const leadsWithHubspot = mergeHubspotStatus(processLeads(rawLeads), hubspotMap);
-  const leads = mergeGhlStatus(leadsWithHubspot, ghlMap);
+  // Cruce en cadena respetando los interruptores de Ajustes (settings)
+  let leads = processLeads(rawLeads);
+  leads = mergeHubspotStatus(leads, hubspotMap, settings);
+  leads = mergeGhlStatus(leads, ghlMap, settings);
+  leads = mergeTresorStatus(leads, tresorMap, settings);
 
-  // Snapshot de calidad de leads (por Fuente y por Campaña, según el
-  // semáforo) — se guarda para que la generación de campañas lo use como
-  // contexto real. Se espera (await): en serverless una promesa sin esperar
-  // puede cortarse cuando ya se mandó la respuesta.
   try {
     await saveLeadQualitySummary({
       generatedAt: new Date().toISOString(),
@@ -68,9 +58,6 @@ export async function loadDashboardData(logPrefix: string): Promise<DashboardDat
     console.error(`[${logPrefix}] Error al guardar calidad de leads:`, err);
   }
 
-  // Historial completo (un punto por día) para la gráfica de línea del
-  // tiempo — ya incluye el snapshot de hoy. Si falla, la gráfica se muestra
-  // vacía, no tumba el resto del dashboard.
   let leadQualityHistoryChart: { data: LeadQualityHistoryChartPoint[]; fuentes: string[] } = { data: [], fuentes: [] };
   try {
     const history = await getLeadQualityHistory();
