@@ -1,93 +1,55 @@
-import { getLeads } from '@/lib/googleSheets';
-import { getHubspotStatusMap } from '@/lib/hubspot';
-import { getGhlStatusMap } from '@/lib/ghl';
-import {
-  processLeads,
-  mergeHubspotStatus,
-  mergeGhlStatus,
-  summarizeLeadQualityByFuente,
-  summarizeLeadQualityByCampana,
-  buildLeadQualityHistoryChartData,
-  type LeadQualityHistoryChartPoint,
-} from '@/lib/leadUtils';
-import { saveLeadQualitySummary, getLeadQualityHistory } from '@/lib/leadQualityStorage';
+import { loadDashboardData } from '@/lib/dashboardData';
 import { DashboardTabs } from '@/components/dashboard/dashboard-tabs';
+import { Logo } from '@/components/dashboard/logo';
+import type { CSSProperties } from 'react';
 
-// Revalida la página cada 60s (coordinado con el caché de getLeads() y
-// getHubspotStatusMap()).
-export const revalidate = 60;
+// Render dinámico siempre: la página vive detrás de login y lee el Sheet +
+// HubSpot + GHL en vivo. `revalidate` entra en conflicto con los fetch
+// `cache: 'no-store'` (DYNAMIC_SERVER_USAGE en build); los rate-limits ya los
+// cubren los cachés en memoria de cada fuente.
+export const dynamic = 'force-dynamic';
 
 export default async function DashboardPage() {
-  // 1. Extracción segura de datos (Server Component -> nunca se envían
-  //    credenciales de Google/HubSpot/GHL al cliente). Las 3 fuentes en
-  //    paralelo. GHL puede tardar (cuenta con ~4,600 oportunidades,
-  //    paginado) — si falla o tarda demasiado, no tumba el resto del
-  //    dashboard, solo la columna "Estado GHL" queda sin dato.
-  const [rawLeads, hubspotMap, ghlMap] = await Promise.all([
-    getLeads(),
-    getHubspotStatusMap(),
-    getGhlStatusMap().catch((err) => {
-      console.error('[page] Error al leer GoHighLevel, se omite por esta vez:', err);
-      return { byEmail: new Map() };
-    }),
-  ]);
-
-  // 2. Limpieza + deduplicación (server-side) SOLO sobre los leads reales
-  //    del Sheet (ya no se agregan contactos que solo existen en HubSpot
-  //    como leads nuevos — se decidió que no deben aparecer en la tabla,
-  //    HubSpot se usa únicamente para enriquecer los leads que sí vienen
-  //    del Sheet). Luego cruce con el estado del CRM (HubSpot primero,
-  //    GHL después — GHL cruza solo por correo).
-  const leadsWithHubspot = mergeHubspotStatus(processLeads(rawLeads), hubspotMap);
-  const leads = mergeGhlStatus(leadsWithHubspot, ghlMap);
-
-  // 3. Snapshot de calidad de leads (por Fuente y por Campaña, según el
-  //    semáforo) — se guarda para que la generación de campañas lo use
-  //    como contexto real, sin tener que recalcular todo esto de nuevo.
-  //    Se espera (await) en vez de fire-and-forget: en un entorno
-  //    serverless, una promesa sin esperar puede cortarse antes de
-  //    terminar cuando la respuesta ya se mandó — el costo extra aquí es
-  //    mínimo (un par de llamadas al Sheet), no la parte pesada de GHL.
-  try {
-    await saveLeadQualitySummary({
-      generatedAt: new Date().toISOString(),
-      byFuente: summarizeLeadQualityByFuente(leads),
-      byCampana: summarizeLeadQualityByCampana(leads),
-    });
-  } catch (err) {
-    console.error('[page] Error al guardar calidad de leads:', err);
-  }
-
-  // 4. Historial completo (un punto por día) para la gráfica de línea del
-  //    tiempo — ya incluye el snapshot de hoy que se acaba de guardar
-  //    arriba. Si falla, la gráfica simplemente se muestra vacía, no
-  //    tumba el resto del dashboard.
-  let leadQualityHistoryChart: { data: LeadQualityHistoryChartPoint[]; fuentes: string[] } = { data: [], fuentes: [] };
-  try {
-    const history = await getLeadQualityHistory();
-    leadQualityHistoryChart = buildLeadQualityHistoryChartData(history);
-  } catch (err) {
-    console.error('[page] Error al leer historial de calidad de leads:', err);
-  }
+  // Server Component -> las credenciales de Google/HubSpot/GHL nunca se
+  // envían al cliente. Live usa el Google Sheet como fuente primaria;
+  // HubSpot y GHL solo enriquecen el estado (ver lib/dashboardData.ts).
+  const { leads, hubspotLimit, leadQualityHistoryChart, settings } = await loadDashboardData('page');
 
   const lastUpdated = new Date().toLocaleString('es-MX', {
     dateStyle: 'long',
     timeStyle: 'short',
   });
 
+  // El Page ID de Meta puede venir de Ajustes (settings.metaPageId) o, si
+  // nunca se tocó ese ajuste, del valor fijo del servidor.
+  const effectiveMetaPageId = settings.metaPageId || process.env.NEXT_PUBLIC_META_PAGE_ID || '';
+
+  const displayName = settings.displayName || 'Live Desarrollos';
+
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-zinc-950 text-zinc-100">
-      <header className="flex shrink-0 flex-col justify-between gap-1 border-b border-zinc-800 px-6 py-4 sm:flex-row sm:items-end">
-        <div>
-          <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">Live Desarrollos</p>
-          <h1 className="text-xl font-semibold tracking-tight text-zinc-50">Panel de Reportes</h1>
+    <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground" style={settings.primaryColor ? ({ '--brand-color': settings.primaryColor } as CSSProperties) : undefined}>
+      <header className="flex shrink-0 flex-col justify-between gap-1 border-b border-border px-6 py-4 sm:flex-row sm:items-end">
+        <div className="flex items-center gap-3">
+          <Logo src={settings.logoDataUri} alt={displayName} background={settings.logoBackground} className="h-9 shrink-0" />
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground" style={settings.primaryColor ? { color: settings.primaryColor } : undefined}>
+              {displayName}
+            </p>
+            <h1 className="text-xl font-semibold tracking-tight text-foreground">Panel de Reportes</h1>
+          </div>
         </div>
         <div className="flex items-center gap-4">
-          <p className="text-xs text-zinc-500">Última actualización: {lastUpdated}</p>
+          <p className="text-xs text-muted-foreground">Última actualización: {lastUpdated}</p>
         </div>
       </header>
 
-      <DashboardTabs leads={leads} initialHubspotLimit={hubspotMap.limit} leadQualityHistory={leadQualityHistoryChart} />
+      <DashboardTabs
+        leads={leads}
+        initialHubspotLimit={hubspotLimit}
+        leadQualityHistory={leadQualityHistoryChart}
+        settings={settings}
+        effectiveMetaPageId={effectiveMetaPageId}
+      />
     </div>
   );
 }
